@@ -1,0 +1,41 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+AGENTS.md
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# JavaScript / web
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+.astro/
+.vercel/
+coverage/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+stitch/
+stitch.zip
+images/*.zip
+images/source-assets/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
