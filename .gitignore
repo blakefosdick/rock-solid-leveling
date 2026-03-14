@@ -34,6 +34,8 @@ stitch/
 stitch.zip
 images/*.zip
 images/source-assets/
+images/logos/levelandslabs.png
+images/logos/squareslabs.png
 
 # Python
 .venv/
