@@ -848,8 +848,12 @@ button {
     width: 100%;
   }
 
+  .site-header__cta {
+    display: none;
+  }
+
   .site-header__brand img {
-    width: 8.5rem;
+    width: 12rem;
   }
 
   .hero {

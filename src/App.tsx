@@ -446,7 +446,7 @@ function App() {
             </ul>
           </nav>
 
-          <a className="button button--primary button--small" href="#estimate">
+          <a className="site-header__cta button button--primary button--small" href="#estimate">
             Get A Free Quote
           </a>
         </div>
