@@ -16,7 +16,7 @@ This build reworks the old `rbconcretelevel.com` content into a new brand-forwar
 - New hero layout with a custom before/after comparison slider
 - Scroll-reactive level graphic inspired by the new logo
 - Content carried over from the old site and reorganized into a stronger marketing flow
-- Static quote request form that opens the visitor's email client
+- Quote request form that can post directly to an `n8n` webhook or fall back to email/share
 - GitHub Pages deployment workflow in `.github/workflows/deploy.yml`
 
 ## Local development
@@ -25,6 +25,15 @@ This build reworks the old `rbconcretelevel.com` content into a new brand-forwar
 npm install
 npm run dev
 ```
+
+To enable direct form submissions, copy `.env.example` to `.env` and set:
+
+```bash
+VITE_N8N_WEBHOOK_URL=https://your-n8n-domain/webhook/your-webhook-id
+VITE_N8N_FORM_ID=rock-solid-website
+```
+
+If `VITE_N8N_WEBHOOK_URL` is omitted, the quote form falls back to the existing share sheet and email draft flow.
 
 ## Production build
 

@@ -13,7 +13,7 @@
   --blue: #1453e5;
   --blue-deep: #0f43ba;
   --teal: #0f7a72;
-  --orange: #eb8a24;
+  --orange: #e77d23;
   --shadow: 0 22px 50px rgba(11, 20, 38, 0.08);
   --shadow-strong: 0 28px 70px rgba(8, 17, 33, 0.16);
   --radius-xl: 1.75rem;
@@ -239,7 +239,7 @@ button {
 
 .hero h1 span {
   position: relative;
-  color: var(--blue);
+  color: var(--orange);
   padding-left: 2.2rem;
 }
 
@@ -637,6 +637,15 @@ button {
   padding: 1.3rem;
 }
 
+.quote-form__fieldset {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
 .quote-form__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -664,6 +673,13 @@ button {
 .quote-form input::placeholder,
 .quote-form textarea::placeholder {
   color: #9ca5b4;
+}
+
+.quote-form input:disabled,
+.quote-form textarea:disabled,
+.quote-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .quote-form textarea {

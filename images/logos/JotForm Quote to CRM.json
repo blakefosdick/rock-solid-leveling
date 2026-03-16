@@ -1,0 +1,774 @@
+{
+  "name": "JotForm Quote to CRM",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "94e2fec3-6eef-4ec6-a71d-516e5e2fe415",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -208
+      ],
+      "id": "eb065846-7d45-4483-a2a8-fc3b2735b892",
+      "name": "Webhook",
+      "webhookId": "94e2fec3-6eef-4ec6-a71d-516e5e2fe415"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function Item — Normalize Jotform payload into `contact`\n// Includes strict file URL filtering + address parsing + notes (q17_anyNotes)\n\n// -------------- Helpers --------------\nconst body = $json.body || $json;\n\nlet raw = {};\ntry {\n  raw = JSON.parse(body.rawRequest || '{}');\n} catch (e) {\n  raw = {};\n}\n\nconst get = (obj, path, fallback = '') => {\n  try {\n    return path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj) ?? fallback;\n  } catch { return fallback; }\n};\n\nconst parseAddressBlock = (text) => {\n  const out = {};\n  if (!text) return { houseNumber: '', streetName: '', city: '', state: '', postalCode: '', country: '' };\n  text.split(/\\r?\\n/).forEach(line => {\n    const m = line.match(/^\\s*([^:]+)\\s*:\\s*(.+)$/);\n    if (m) out[m[1].trim().toLowerCase()] = m[2].trim();\n  });\n  const houseNumber = out['house number'] || out['streetnumber'] || out['number'] || '';\n  const streetName  = out['street name']  || out['route']        || out['street'] || out['address line 1'] || '';\n  const city        = out['city']         || out['locality']     || '';\n  const state       = out['state']        || out['administrative area level 1'] || out['region'] || '';\n  const postalCode  = out['postal code']  || out['postcode']     || out['zip']   || '';\n  const country     = out['country']      || '';\n  return { houseNumber, streetName, city, state, postalCode, country };\n};\n\n// STRICT file URL extractor: only keep actual uploaded files\nconst extractFileUrls = () => {\n  const urls = new Set();\n  if (Array.isArray(raw.fileUpload)) raw.fileUpload.forEach(u => typeof u === 'string' && urls.add(u));\n  if (Array.isArray(body.fileUpload)) body.fileUpload.forEach(u => typeof u === 'string' && urls.add(u));\n  const skipKeys = new Set(['uploadServerUrl']);\n  const scan = (val) => {\n    if (!val) return;\n    if (typeof val === 'string') {\n      const m = val.match(/https?:\\/\\/[^\\s\",]+/gi);\n      if (m) m.forEach(u => urls.add(u));\n    } else if (Array.isArray(val)) {\n      val.forEach(scan);\n    } else if (typeof val === 'object') {\n      Object.entries(val).forEach(([k, v]) => {\n        if (!skipKeys.has(k)) scan(v);\n      });\n    }\n  };\n  scan(raw);\n  const allowedExt = /\\.(jpg|jpeg|png|gif|pdf|docx?|xlsx?|csv|txt|rtf|zip)$/i;\n  const isJotformUploadPath = /:\\/\\/(?:www\\.)?jotform\\.com\\/uploads\\/.+\\/\\d+\\/[^\\/]+\\.[^\\/?]+$/i;\n  const filtered = Array.from(urls).filter(u => {\n    try {\n      const dec = decodeURI(u);\n      return allowedExt.test(dec) && isJotformUploadPath.test(dec);\n    } catch {\n      return allowedExt.test(u) && isJotformUploadPath.test(u);\n    }\n  });\n  return filtered.map(u => { try { return decodeURI(u); } catch { return u; } });\n};\n\n// -------------- Field Mapping (adjust IDs if you change form) --------------\nconst jf = {\n  firstName: get(raw, 'q11_name.first'),\n  lastName:  get(raw, 'q11_name.last'),\n  email:     get(raw, 'q5_email5'),\n  phone:     get(raw, 'q12_phoneNumber.full'),\n  sqft:      get(raw, 'q13_number'),\n  coupon:    get(raw, 'q16_typeA16'),\n  addressBlock: get(raw, 'q7_typeA'),      // Multiline block with Street/House/City/State/Postal/Country\n  notes: get(raw, 'q17_anyNotes'),         // <- NEW FIELD\n};\n\n// Parse address block + support explicit keys if the widget outputs them\nconst block = parseAddressBlock(jf.addressBlock);\nconst houseNumber = (raw.streetNumber || block.houseNumber || '').trim();\nconst streetName  = (raw.route        || block.streetName  || '').trim();\nconst city        = (raw.locality     || block.city        || '').trim();\nconst state       = (raw.administrativeAreaLevel1 || block.state || '').trim();\nconst postalCode  = (raw.postalCode   || block.postalCode  || '').trim();\nconst country     = (raw.country      || block.country     || '').trim();\nconst address1    = [houseNumber, streetName].filter(Boolean).join(' ').trim();\n\nconst fileUrls = extractFileUrls();\n\n// -------------- Build contact --------------\nconst contact = {\n  firstName: jf.firstName || '',\n  lastName:  jf.lastName  || '',\n  email:     jf.email     || '',\n  phone:     jf.phone     || '',\n  address1,\n  city,\n  state,\n  postalCode,\n  country,\n  squareFeetOfSlabs: jf.sqft || '',\n  couponCode:        jf.coupon || '',\n  notes:             (jf.notes || '').trim(),   // <- NEW FIELD in output\n  formId:        get(body, 'formID', ''),\n  submissionId:  get(body, 'submissionID', ''),\n  fileUploads:   fileUrls,\n  _raw: raw\n};\n\nreturn { json: { contact } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -208
+      ],
+      "id": "de2d41d3-bba8-417a-8b1c-da5dd5658022",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "email": "={{ $('Code').item.json.contact.email }}",
+        "phone": "={{ $('Code').item.json.contact.phone }}",
+        "additionalFields": {
+          "address1": "={{ $('Code').item.json.contact.address1 }}",
+          "city": "={{ $('Code').item.json.contact.city }}",
+          "customFields": {
+            "values": [
+              {
+                "fieldId": {
+                  "__rl": true,
+                  "value": "5pX0DhPVGkwPQ4sAoIjz",
+                  "mode": "list",
+                  "cachedResultName": "Square Feet of Slabs"
+                },
+                "fieldValue": "={{ $('Code').item.json.contact.squareFeetOfSlabs }}"
+              },
+              {
+                "fieldId": {
+                  "__rl": true,
+                  "value": "mXBYWEfE5Muyon7me8Ai",
+                  "mode": "list",
+                  "cachedResultName": "Coupon Code"
+                },
+                "fieldValue": "={{ $('Code').item.json.contact.couponCode }}"
+              },
+              {
+                "fieldId": {
+                  "__rl": true,
+                  "value": "XGPeq5EV1xvOP9fRPsNt",
+                  "mode": "list",
+                  "cachedResultName": "images of concrete"
+                },
+                "fieldValue": "={{ $json['contact.fileUploads'] }}"
+              },
+              {
+                "fieldId": {
+                  "__rl": true,
+                  "value": "wIkVaPWQuiJJjcxbci49",
+                  "mode": "list",
+                  "cachedResultName": "Notes"
+                },
+                "fieldValue": "={{ $('Code').item.json.contact.notes }}"
+              }
+            ]
+          },
+          "firstName": "={{ $('Code').item.json.contact.firstName }}",
+          "lastName": "={{ $('Code').item.json.contact.lastName }}",
+          "postalCode": "={{ $('Code').item.json.contact.postalCode }}",
+          "state": "={{ $('Code').item.json.contact.state }}",
+          "tags": "website contact form"
+        },
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -208
+      ],
+      "id": "7143feb4-9290-4abc-8633-318c463a367f",
+      "name": "Create or update a contact",
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "XCbaN760oEHTVi44",
+          "name": "HighLevel account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "create",
+        "name": "={{ $('Code').item.json.contact.firstName }} {{ $('Code').item.json.contact.lastName }}",
+        "additionalFields": {
+          "address": {
+            "details": {
+              "line1": "={{ $('Code').item.json.contact.address1 }}",
+              "city": "={{ $('Code').item.json.contact.city }}",
+              "state": "={{ $('Code').item.json.contact.state }}",
+              "country": "={{ $('Code').item.json.contact.country }}",
+              "postal_code": "={{ $('Code').item.json.contact.postalCode }}"
+            }
+          },
+          "email": "={{ $('Code').item.json.contact.email }}",
+          "phone": "={{ $('Code').item.json.contact.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.stripe",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        -208
+      ],
+      "id": "bfccf0eb-9060-42f9-8ac2-dc391a24b692",
+      "name": "Create a customer",
+      "credentials": {
+        "stripeApi": {
+          "id": "1WMdckoXTjOXvTT8",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "blake@rocksolidleveling.com",
+        "toEmail": "={{ $('Code').item.json.contact.email }}",
+        "subject": "Quote for Concrete Leveling",
+        "html": "=Hi {{ $('Code').item.json.contact.firstName }},\n\nAttached is your quote from Rock Solid Leveling. Let us know if you have any questions.\n\nThanks,\n\nRock Solid Leveling\nrocksolidleveling.com\n402-682-8151\n\n{{ $('Code').item.json.contact.notes }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "quotePdf"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2240,
+        -208
+      ],
+      "id": "6a29b8ad-2964-4b25-9edc-195d37e71105",
+      "name": "Send email",
+      "webhookId": "969d48f3-533f-4d2e-a9fe-274a4995c6c6",
+      "credentials": {
+        "smtp": {
+          "id": "v9Elu7wLPmcwVldg",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/quotes",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Stripe-Version",
+              "value": "2025-06-30.basil"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "customer",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "line_items[0][price]",
+              "value": "price_1SBmyiBeGVlNomsgVCHxBQvI"
+            },
+            {
+              "name": "line_items[0][quantity]",
+              "value": "={{ $('Code').item.json.contact.squareFeetOfSlabs }}"
+            },
+            {
+              "name": "footer",
+              "value": "={{ $('Code').item.json.contact.notes }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        -208
+      ],
+      "id": "29a4d3ce-ff80-49b9-b142-afc9dcc7f17b",
+      "name": "Create a Quote @ Stripe",
+      "credentials": {
+        "stripeApi": {
+          "id": "1WMdckoXTjOXvTT8",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://files.stripe.com/v1/quotes/{{ $json.id }}/pdf",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "quotePdf"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        -208
+      ],
+      "id": "268858c1-01fc-4ef2-8848-f00342785163",
+      "name": "Download Quote",
+      "credentials": {
+        "stripeApi": {
+          "id": "1WMdckoXTjOXvTT8",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "opportunity",
+        "pipelineId": "KXw2SRzg5Ypg3pRiUe7B",
+        "contactId": "={{ $('Create or update a contact').item.json.id }}",
+        "name": "={{ $('Code').item.json.contact.firstName }} {{ $('Code').item.json.contact.lastName }}",
+        "additionalFields": {
+          "monetaryValue": "={{ $('Create a Quote @ Stripe').item.json.amount_total / 100 }}"
+        },
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        -208
+      ],
+      "id": "170eb19a-d22d-4a3c-aaa3-f53e1397f187",
+      "name": "Create an opportunity",
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "XCbaN760oEHTVi44",
+          "name": "HighLevel account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.stripe.com/v1/quotes/{{ $json.id }}/finalize",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Stripe-Version",
+              "value": "2025-06-30.basil"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        -208
+      ],
+      "id": "3befb02c-e9cf-4639-9241-b1b6d24fea9d",
+      "name": "Finalize Quote",
+      "credentials": {
+        "stripeApi": {
+          "id": "1WMdckoXTjOXvTT8",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "You can't download a quote without first finalizing. ",
+        "height": 208,
+        "width": 384
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -256
+      ],
+      "id": "991b5da4-fa13-49f9-b3f8-24d4f7bd771b",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Split Out').item.json['contact.fileUploads'] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        672,
+        -208
+      ],
+      "id": "8631109e-4897-459f-aece-d8c1dd78d8dd",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "contact.fileUploads",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -208
+      ],
+      "id": "4f1e52cd-f3ba-4c87-845c-85655d121c16",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "contactId": "={{ $json.opportunity.id }}",
+        "updateFields": {
+          "customFields": {
+            "values": [
+              {
+                "fieldId": {
+                  "__rl": true,
+                  "value": "kUv7qGXP9TLily9LY5iv",
+                  "mode": "list",
+                  "cachedResultName": "Quote File"
+                }
+              }
+            ]
+          }
+        },
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.highLevel",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        -208
+      ],
+      "id": "d8a286fa-8e5e-44c8-8877-29623fb4084f",
+      "name": "Update a contact",
+      "credentials": {
+        "highLevelOAuth2Api": {
+          "id": "XCbaN760oEHTVi44",
+          "name": "HighLevel account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -208
+      ],
+      "id": "cb39a401-9cc4-4269-8549-d50270b2e548",
+      "name": "Aggregate"
+    }
+  ],
+  "pinData": {
+    "Create an opportunity": [
+      {
+        "json": {
+          "opportunity": {
+            "id": "z94v33231x9a5h0Qod00",
+            "name": "John Smith",
+            "monetaryValue": 1200,
+            "pipelineId": "KXw2SRzg5Ypg3pRiUe7B",
+            "pipelineStageId": "ebad0754-aa9e-4e1d-b126-350c0ce64348",
+            "status": "open",
+            "lastStatusChangeAt": "2025-09-27T20:06:48.031Z",
+            "lastStageChangeAt": "2025-09-27T20:06:48.031Z",
+            "createdAt": "2025-09-27T20:06:48.031Z",
+            "updatedAt": "2025-09-27T20:06:48.031Z",
+            "contactId": "W8Uk7bb9x3VFCx3IjJRv",
+            "isAttribute": false,
+            "internalSource": {
+              "type": "CREATED",
+              "id": "689a5dd3e2f15e51eb3dad15-me7mjpaw",
+              "apiVersion": "2021-07-28",
+              "channel": "OAUTH",
+              "source": "INTEGRATION"
+            },
+            "locationId": "Tfkw5X9Yaj3OU0ZwyzYz",
+            "lastActionDate": "2025-09-27T20:06:48.031Z",
+            "followers": [],
+            "contact": {
+              "id": "W8Uk7bb9x3VFCx3IjJRv",
+              "name": "",
+              "email": "john@example.com",
+              "phone": "+11111111111",
+              "tags": [
+                "website contact form"
+              ],
+              "followers": []
+            }
+          },
+          "traceId": "3df16622-1b7b-4f93-b86c-5fa34a0d6a57"
+        }
+      }
+    ],
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.allnewsolutions.com",
+            "content-length": "3940",
+            "accept": "*/*",
+            "content-type": "multipart/form-data; boundary=------------------------h8RrJykGZA1SuNKXEvHXuH",
+            "newrelic": "eyJ2IjpbMCwxXSwiZCI6eyJ0eSI6IkFwcCIsImFjIjoiNjkxNjIwIiwiYXAiOiIxMzE0NDY2Njk5IiwiaWQiOiIwNjYxYWJkYzIzNmViOWMxIiwidHIiOiIzYmQyNTVkN2IxZWIzOTRjIiwidHgiOiIzYmQyNTVkN2IxZWIzOTRjIiwicHIiOjEuNzc3MTIsInNhIjp0cnVlLCJ0aSI6MTc2MjA1NjI0OTkyN319",
+            "traceparent": "00-00000000000000003bd255d7b1eb394c-0661abdc236eb9c1-01",
+            "tracestate": "691620@nr=0-0-691620-1314466699-0661abdc236eb9c1-3bd255d7b1eb394c-1-1.777118-1762056249927",
+            "x-forwarded-for": "35.188.24.133",
+            "x-forwarded-host": "n8n.allnewsolutions.com",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "d78ebee4789c",
+            "x-real-ip": "35.188.24.133",
+            "accept-encoding": "gzip"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "action": "",
+            "webhookURL": "https://n8n.allnewsolutions.com/webhook/94e2fec3-6eef-4ec6-a71d-516e5e2fe415",
+            "username": "blakefosdick",
+            "formID": "252537052011040",
+            "type": "WEB",
+            "customParams": "",
+            "product": "",
+            "formTitle": "Get a Quote",
+            "customTitle": "",
+            "submissionID": "6378654494912176846",
+            "event": "",
+            "documentID": "",
+            "teamID": "",
+            "subject": "",
+            "isSilent": "",
+            "customBody": "",
+            "rawRequest": "{\"slug\":\"submit\\/252537052011040\",\"jsExecutionTracker\":\"build-date-1762055521307=>init-started:1762056211340=>validator-called:1762056211381=>validator-mounted-false:1762056211385=>init-complete:1762056211395=>interval-complete:1762056232403=>onsubmit-fired:1762056248342=>observerSubmitHandler_received-submit-event:1762056248343=>submit-validation-passed:1762056248351=>observerSubmitHandler_validation-passed-submitting-form:1762056248428\",\"submitSource\":\"form\",\"submitDate\":\"1762056248428\",\"buildDate\":\"1762055521307\",\"uploadServerUrl\":\"https:\\/\\/upload.jotform.com\\/upload\",\"eventObserver\":\"1\",\"q11_name\":{\"first\":\"Quote\",\"last\":\"Tester\"},\"q12_phoneNumber\":{\"full\":\"(402) 555-5555\"},\"q5_email5\":\"quotetester@yopmail.com\",\"q8_typeA8\":\"\",\"q7_typeA\":\"Street name: North 17th Street\\r\\nHouse number: 1932\\r\\nCity: Kansas City\\r\\nState: KS\\r\\nPostal code: 66104\\r\\nCountry: United States\",\"q13_number\":\"500\",\"q17_anyNotes\":\"No comments\",\"q16_typeA16\":\"\",\"event_id\":\"1762056211341_252537052011040_KzR18Zf\",\"timeToSubmit\":\"20\",\"validatedNewRequiredFieldIDs\":\"{\\\"new\\\":1}\",\"path\":\"\\/submit\\/252537052011040\"}",
+            "fromTable": "",
+            "appID": "",
+            "pretty": "Name:Quote Tester, Phone Number:(402) 555-5555, Email:quotetester@yopmail.com, Address:Street name: North 17th Street\r\nHouse number: 1932\r\nCity: Kansas City\r\nState: KS\r\nPostal code: 66104\r\nCountry: United States, Square Feet of Slabs:500, Any notes or comments? :No comments",
+            "unread": "",
+            "parent": "",
+            "ip": "172.59.75.194"
+          },
+          "webhookUrl": "https://n8n.allnewsolutions.com/webhook/94e2fec3-6eef-4ec6-a71d-516e5e2fe415",
+          "executionMode": "production"
+        }
+      }
+    ],
+    "Code": [
+      {
+        "json": {
+          "contact": {
+            "firstName": "Has",
+            "lastName": "Images",
+            "email": "imagetester@yopmail.com",
+            "phone": "(402) 555-1234",
+            "address1": "1654 Patts Street",
+            "city": "Kansas City",
+            "state": "KS",
+            "postalCode": "66104",
+            "country": "United States",
+            "squareFeetOfSlabs": "500",
+            "couponCode": "",
+            "notes": "No comments",
+            "formId": "252537052011040",
+            "submissionId": "6378654494912176846",
+            "fileUploads": [
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_200732974.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201752498.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_181516567.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201350809.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_202225970.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201834496.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201100093.jpg",
+              "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201104305.jpg"
+            ],
+            "_raw": {
+              "slug": "submit/252537052011040",
+              "jsExecutionTracker": "build-date-1762055521307=>init-started:1762056211340=>validator-called:1762056211381=>validator-mounted-false:1762056211385=>init-complete:1762056211395=>interval-complete:1762056232403=>onsubmit-fired:1762056248342=>observerSubmitHandler_received-submit-event:1762056248343=>submit-validation-passed:1762056248351=>observerSubmitHandler_validation-passed-submitting-form:1762056248428",
+              "submitSource": "form",
+              "submitDate": "1762056248428",
+              "buildDate": "1762055521307",
+              "uploadServerUrl": "https://upload.jotform.com/upload",
+              "eventObserver": "1",
+              "q11_name": {
+                "first": "Quote",
+                "last": "Tester"
+              },
+              "q12_phoneNumber": {
+                "full": "(402) 555-5555"
+              },
+              "q5_email5": "quotetester@yopmail.com",
+              "q8_typeA8": "",
+              "q7_typeA": "Street name: North 17th Street\r\nHouse number: 1932\r\nCity: Kansas City\r\nState: KS\r\nPostal code: 66104\r\nCountry: United States",
+              "q13_number": "500",
+              "q17_anyNotes": "No comments",
+              "q16_typeA16": "",
+              "event_id": "1762056211341_252537052011040_KzR18Zf",
+              "timeToSubmit": "20",
+              "validatedNewRequiredFieldIDs": "{\"new\":1}",
+              "path": "/submit/252537052011040"
+            }
+          }
+        }
+      }
+    ],
+    "Split Out": [
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_200732974.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201752498.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_181516567.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201350809.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_202225970.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201834496.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201100093.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "contact.fileUploads": "https://www.jotform.com/uploads/blakefosdick/252537052011040/6447483788518971003/PXL_20250912_201104305.jpg"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create or update a contact": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a customer": {
+      "main": [
+        [
+          {
+            "node": "Create a Quote @ Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Create an opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a Quote @ Stripe": {
+      "main": [
+        [
+          {
+            "node": "Finalize Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Quote": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an opportunity": {
+      "main": [
+        [
+          {
+            "node": "Update a contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Quote": {
+      "main": [
+        [
+          {
+            "node": "Download Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Create or update a contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a contact": {
+      "main": [
+        []
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Create a customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "timezone": "America/Chicago",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "91530a90-145d-4dd0-b815-aa2aac599d08",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f81b8d3ab84426c9423b90bd2e76b6de0172ee3917890db31d31411358329825"
+  },
+  "id": "7ar3SFHNLY19QZby",
+  "tags": []
+}

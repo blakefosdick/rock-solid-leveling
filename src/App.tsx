@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import "./app.css";
-import heroLogo from "../images/logos/LogoText.svg";
+import heroLogo from "../images/logos/LogoSquareTextandImagepng.png";
 import headerLogo from "../images/logos/TextandSlabsHorizontal.png";
 import footerLogo from "../images/logos/textandaddress.svg";
 import levelGraphic from "../images/logos/level.png";
@@ -90,6 +90,127 @@ const footerLinks = [
   { href: "#estimate", label: "Free Estimate" },
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
 ];
+
+const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() ?? "";
+const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
+
+const createSubmissionId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `rsl-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const splitFullName = (fullName: string) => {
+  const trimmedName = fullName.trim();
+
+  if (!trimmedName) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const [firstName, ...remainingNames] = trimmedName.split(/\s+/);
+
+  return {
+    firstName,
+    lastName: remainingNames.join(" ")
+  };
+};
+
+const createLegacyAddressBlock = (address: string) => {
+  const trimmedAddress = address.trim();
+
+  if (!trimmedAddress) {
+    return "";
+  }
+
+  return [`Address line 1: ${trimmedAddress}`, "Country: United States"].join("\r\n");
+};
+
+type QuoteSubmission = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  squareFeet: string;
+  details: string;
+  images: File[];
+};
+
+const buildWebhookPayload = ({
+  name,
+  phone,
+  email,
+  address,
+  squareFeet,
+  details,
+  images
+}: QuoteSubmission) => {
+  const submissionId = createSubmissionId();
+  const { firstName, lastName } = splitFullName(name);
+  const trimmedName = name.trim();
+  const trimmedPhone = phone.trim();
+  const trimmedEmail = email.trim();
+  const trimmedAddress = address.trim();
+  const trimmedSquareFeet = squareFeet.trim();
+  const trimmedDetails = details.trim();
+
+  const rawRequest = {
+    submitSource: "website",
+    submitDate: Date.now().toString(),
+    q11_name: {
+      first: firstName,
+      last: lastName
+    },
+    q12_phoneNumber: {
+      full: trimmedPhone
+    },
+    q5_email5: trimmedEmail,
+    q7_typeA: createLegacyAddressBlock(trimmedAddress),
+    q13_number: trimmedSquareFeet,
+    q17_anyNotes: trimmedDetails,
+    q16_typeA16: "",
+    q18_uploadedFiles: images.map((image) => image.name),
+    path: "/website-quote"
+  };
+
+  const formData = new FormData();
+
+  formData.append("formID", n8nFormId);
+  formData.append("submissionID", submissionId);
+  formData.append("formTitle", "Get a Quote");
+  formData.append("type", "WEB");
+  formData.append("webhookSource", "rocksolidleveling.com");
+  formData.append("submittedAt", new Date().toISOString());
+  formData.append(
+    "pretty",
+    [
+      `Name:${trimmedName}`,
+      `Phone Number:${trimmedPhone}`,
+      `Email:${trimmedEmail}`,
+      `Address:${trimmedAddress}`,
+      `Square Feet of Slabs:${trimmedSquareFeet || "Not provided"}`,
+      `Any notes or comments? :${trimmedDetails}`,
+      `Images:${images.length > 0 ? images.map((image) => image.name).join(", ") : "None"}`
+    ].join(", ")
+  );
+  formData.append("rawRequest", JSON.stringify(rawRequest));
+  formData.append("fullName", trimmedName);
+  formData.append("firstName", firstName);
+  formData.append("lastName", lastName);
+  formData.append("phone", trimmedPhone);
+  formData.append("email", trimmedEmail);
+  formData.append("address", trimmedAddress);
+  formData.append("squareFeet", trimmedSquareFeet);
+  formData.append("details", trimmedDetails);
+  formData.append("imageCount", String(images.length));
+
+  images.forEach((image) => {
+    formData.append("images", image, image.name);
+  });
+
+  return formData;
+};
 
 function useRevealAnimations() {
   useEffect(() => {
@@ -258,12 +379,61 @@ function QuoteForm() {
   const [squareFeet, setSquareFeet] = useState("");
   const [details, setDetails] = useState("");
   const [images, setImages] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const fileHintId = useId();
   const statusMessageId = useId();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    setStatusMessage("");
+
+    if (n8nWebhookUrl) {
+      try {
+        setIsSubmitting(true);
+
+        const response = await fetch(n8nWebhookUrl, {
+          method: "POST",
+          body: buildWebhookPayload({
+            name,
+            phone,
+            email,
+            address,
+            squareFeet,
+            details,
+            images
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Webhook request failed with status ${response.status}`);
+        }
+
+        setName("");
+        setPhone("");
+        setEmail("");
+        setAddress("");
+        setSquareFeet("");
+        setDetails("");
+        setImages([]);
+
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+
+        setStatusMessage("Thanks. Your estimate request was sent successfully.");
+        return;
+      } catch (error) {
+        console.error("n8n webhook submission failed", error);
+        setStatusMessage(
+          "We could not send your request through the site right now. Your email draft is opening so you can still reach us."
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
 
     const requestSummary = [
       `Full Name: ${name}`,
@@ -321,105 +491,110 @@ function QuoteForm() {
 
   return (
     <form className="quote-form" onSubmit={onSubmit}>
-      <div className="quote-form__grid">
+      <fieldset className="quote-form__fieldset" disabled={isSubmitting}>
+        <div className="quote-form__grid">
+          <label>
+            Full Name
+            <input
+              type="text"
+              name="name"
+              placeholder="John Doe"
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <label>
+            Phone Number
+            <input
+              type="tel"
+              name="phone"
+              placeholder="(402) 000-0000"
+              required
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+            />
+          </label>
+          <label>
+            Email Address
+            <input
+              type="email"
+              name="email"
+              placeholder="your@email.com"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            Service Address
+            <input
+              type="text"
+              name="address"
+              placeholder="123 Omaha St. NE"
+              required
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+            />
+          </label>
+          <label>
+            Square Feet of Slabs
+            <input
+              type="number"
+              name="squareFeet"
+              inputMode="numeric"
+              min="0"
+              step="1"
+              placeholder="Approx. 250"
+              value={squareFeet}
+              onChange={(event) => setSquareFeet(event.target.value)}
+            />
+          </label>
+        </div>
         <label>
-          Full Name
+          Upload Images
           <input
-            type="text"
-            name="name"
-            placeholder="John Doe"
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
+            ref={fileInputRef}
+            type="file"
+            name="images"
+            accept="image/*"
+            multiple
+            aria-describedby={fileHintId}
+            onChange={(event) => {
+              setImages(Array.from(event.target.files ?? []));
+            }}
           />
         </label>
-        <label>
-          Phone Number
-          <input
-            type="tel"
-            name="phone"
-            placeholder="(402) 000-0000"
-            required
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-          />
-        </label>
-        <label>
-          Email Address
-          <input
-            type="email"
-            name="email"
-            placeholder="your@email.com"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label>
-          Service Address
-          <input
-            type="text"
-            name="address"
-            placeholder="123 Omaha St. NE"
-            required
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-          />
-        </label>
-        <label>
-          Square Feet of Slabs
-          <input
-            type="number"
-            name="squareFeet"
-            inputMode="numeric"
-            min="0"
-            step="1"
-            placeholder="Approx. 250"
-            value={squareFeet}
-            onChange={(event) => setSquareFeet(event.target.value)}
-          />
-        </label>
-      </div>
-      <label>
-        Upload Images
-        <input
-          type="file"
-          name="images"
-          accept="image/*"
-          multiple
-          aria-describedby={fileHintId}
-          onChange={(event) => {
-            setImages(Array.from(event.target.files ?? []));
-          }}
-        />
-      </label>
-      <p className="quote-form__hint" id={fileHintId}>
-        Add slab photos to speed up quoting. On supported devices, the share sheet can send them with your request. Otherwise, your email draft will open and you can attach the photos manually.
-      </p>
-      {images.length > 0 ? (
-        <p className="quote-form__file-summary">
-          {images.length} image{images.length === 1 ? "" : "s"} selected:{" "}
-          {images.map((image) => image.name).join(", ")}
+        <p className="quote-form__hint" id={fileHintId}>
+          {n8nWebhookUrl
+            ? "Add slab photos to help speed up quoting. The form now sends your request to the estimate workflow directly."
+            : "Add slab photos to speed up quoting. On supported devices, the share sheet can send them with your request. Otherwise, your email draft will open and you can attach the photos manually."}
         </p>
-      ) : null}
-      <label>
-        Issue Description
-        <textarea
-          name="details"
-          rows={5}
-          placeholder="Describe the sunken area (driveway, patio, walkway...)"
-          required
-          value={details}
-          onChange={(event) => setDetails(event.target.value)}
-        />
-      </label>
+        {images.length > 0 ? (
+          <p className="quote-form__file-summary">
+            {images.length} image{images.length === 1 ? "" : "s"} selected:{" "}
+            {images.map((image) => image.name).join(", ")}
+          </p>
+        ) : null}
+        <label>
+          Issue Description
+          <textarea
+            name="details"
+            rows={5}
+            placeholder="Describe the sunken area (driveway, patio, walkway...)"
+            required
+            value={details}
+            onChange={(event) => setDetails(event.target.value)}
+          />
+        </label>
+      </fieldset>
       {statusMessage ? (
         <p className="quote-form__status" id={statusMessageId} aria-live="polite">
           {statusMessage}
         </p>
       ) : null}
-      <button type="submit" className="button button--primary button--block">
-        Submit Request
+      <button type="submit" className="button button--primary button--block" disabled={isSubmitting}>
+        {isSubmitting ? "Sending..." : n8nWebhookUrl ? "Send Request" : "Submit Request"}
       </button>
     </form>
   );
@@ -484,6 +659,20 @@ function App() {
           </div>
         </section>
 
+        <section className="results-band" id="results">
+          <div className="section section--dark">
+            <div className="results-band__heading" data-reveal>
+              <h2>Real Results. Solid Foundations.</h2>
+              <p>
+                See how we restore damaged concrete to usable condition in just
+                a few hours.
+              </p>
+            </div>
+
+            <BeforeAfterSlider />
+          </div>
+        </section>
+
         <section className="section section--tight" id="services">
           <div className="section-heading" data-reveal>
             <h2>Why Choose Rock Solid Leveling?</h2>
@@ -507,20 +696,6 @@ function App() {
             <div className="benefits-art" data-reveal>
               <img src={levelGraphic} alt="" aria-hidden="true" />
             </div>
-          </div>
-        </section>
-
-        <section className="results-band" id="results">
-          <div className="section section--dark">
-            <div className="results-band__heading" data-reveal>
-              <h2>Real Results. Solid Foundations.</h2>
-              <p>
-                See how we restore damaged concrete to usable condition in just
-                a few hours.
-              </p>
-            </div>
-
-            <BeforeAfterSlider />
           </div>
         </section>
 
