@@ -1,0 +1,403 @@
+{
+  "name": "Rock Solid Website Intake to R2 + HighLevel",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rock-solid-website-quote",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7df2b452-f53a-4b2f-a7f2-7d7c60f44a7b",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item;\nconst body = item.json.body || item.json;\n\nlet raw = {};\ntry {\n  raw = JSON.parse(body.rawRequest || '{}');\n} catch (error) {\n  raw = {};\n}\n\nconst publicBaseUrl = 'https://images.rocksolidleveling.com';\nconst splitFullName = (value) => {\n  const trimmed = String(value || '').trim();\n  if (!trimmed) return { firstName: '', lastName: '' };\n  const [firstName, ...rest] = trimmed.split(/\\s+/);\n  return { firstName, lastName: rest.join(' ') };\n};\nconst slugify = (value, fallback = 'file') => {\n  const cleaned = String(value || fallback)\n    .toLowerCase()\n    .replace(/[^a-z0-9.-]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .slice(0, 80);\n\n  return cleaned || fallback;\n};\n\nconst suppliedFirst = String(body.firstName || raw.q11_name?.first || '').trim();\nconst suppliedLast = String(body.lastName || raw.q11_name?.last || '').trim();\nconst suppliedFullName = String(body.fullName || '').trim();\nconst nameParts = suppliedFirst || suppliedLast\n  ? { firstName: suppliedFirst, lastName: suppliedLast }\n  : splitFullName(suppliedFullName);\n\nconst submissionId = String(body.submissionID || body.submissionId || `rsl-${Date.now()}`);\nconst submissionSlug = slugify(submissionId, `submission-${Date.now()}`);\nconst now = new Date();\nconst year = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst day = String(now.getUTCDate()).padStart(2, '0');\nconst datePath = `${year}/${month}/${day}`;\nconst binaryEntries = Object.entries(item.binary || {});\n\nconst uploads = binaryEntries.map(([binaryKey, file], index) => {\n  const originalName = file.fileName || `upload-${index + 1}`;\n  const extensionMatch = originalName.match(/\\.[A-Za-z0-9]+$/);\n  const extension = extensionMatch ? extensionMatch[0].toLowerCase() : '';\n  const baseName = extension ? originalName.slice(0, -extension.length) : originalName;\n  const safeFileName = `${String(index + 1).padStart(2, '0')}-${slugify(baseName, `upload-${index + 1}`)}${extension}`;\n  const objectKey = `website-quotes/${datePath}/${submissionSlug}/${safeFileName}`;\n\n  return {\n    binaryKey,\n    fileName: safeFileName,\n    objectKey,\n    publicUrl: `${publicBaseUrl}/${objectKey}`\n  };\n});\n\nreturn {\n  json: {\n    contact: {\n      firstName: nameParts.firstName,\n      lastName: nameParts.lastName,\n      email: String(body.email || raw.q5_email5 || '').trim(),\n      phone: String(body.phone || raw.q12_phoneNumber?.full || '').trim(),\n      address1: String(body.address || '').trim(),\n      city: '',\n      state: '',\n      postalCode: '',\n      country: 'United States',\n      squareFeetOfSlabs: String(body.squareFeet || raw.q13_number || '').trim(),\n      notes: String(body.details || raw.q17_anyNotes || '').trim(),\n      formId: String(body.formID || '').trim(),\n      submissionId,\n      imageCount: uploads.length,\n      fileUploads: [],\n      imageUrlsText: ''\n    },\n    uploads\n  },\n  binary: item.binary\n};"
+      },
+      "id": "f0d4e0bb-5404-4791-9f2a-91f57b4ded0e",
+      "name": "Normalize Submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json[\"uploads\"].length }}",
+              "value2": 0,
+              "operation": "larger"
+            }
+          ]
+        }
+      },
+      "id": "324d816e-6452-442c-bbe8-70d52e967110",
+      "name": "Has Uploads?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        500,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "include": "allOtherFields",
+        "fieldToSplitOut": "uploads",
+        "options": {
+          "destinationFieldName": "upload",
+          "includeBinary": true
+        }
+      },
+      "id": "9426b08c-5619-4ba4-bd66-806e7ee685fb",
+      "name": "Split Out Uploads",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        760,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item;\nconst upload = item.json.upload ?? item.json.uploads ?? (item.json.binaryKey ? {\n  binaryKey: item.json.binaryKey,\n  fileName: item.json.fileName,\n  objectKey: item.json.objectKey,\n  publicUrl: item.json.publicUrl,\n} : undefined);\n\nif (!upload) {\n  throw new Error(`Could not find upload data on the split item. Available keys: ${Object.keys(item.json || {}).join(', ')}`);\n}\n\nconst sourceBinary = item.binary?.[upload.binaryKey];\n\nif (!sourceBinary) {\n  throw new Error(`Missing binary data for upload key: ${upload.binaryKey}. Available binary keys: ${Object.keys(item.binary || {}).join(', ')}`);\n}\n\nreturn {\n  json: {\n    contact: item.json.contact,\n    upload\n  },\n  binary: {\n    data: {\n      ...sourceBinary,\n      fileName: upload.fileName\n    }\n  }\n};"
+      },
+      "id": "cb48523c-8454-4b7a-aad8-6c6f604f4b68",
+      "name": "Prepare Upload Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "fileName": "={{ $json[\"upload\"][\"objectKey\"] }}",
+        "operation": "upload",
+        "bucketName": "REPLACE_WITH_R2_BUCKET_NAME",
+        "additionalFields": {}
+      },
+      "id": "0ef4343f-0d7c-4c63-9ef3-b3d8b4d53c3d",
+      "name": "Upload to R2",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "publicUrl",
+              "value": "={{ $(\"Prepare Upload Item\").item.json[\"upload\"][\"publicUrl\"] }}"
+            }
+          ]
+        },
+        "options": {},
+        "keepOnlySet": true
+      },
+      "id": "24e2f86e-4d62-417c-a568-bfb4f6eadc15",
+      "name": "Keep Uploaded URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "publicUrl"
+            }
+          ]
+        },
+        "options": {
+          "mergeLists": false
+        }
+      },
+      "id": "bf2bc3ce-9f47-437e-ac19-d0dd1c5e269c",
+      "name": "Aggregate Image URLs",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "mergeByIndex"
+      },
+      "id": "3f379d3b-a586-49fd-962d-c7464d063d34",
+      "name": "Merge Original Contact + URLs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 1,
+      "position": [
+        1960,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item;\nconst urls = Array.isArray(item.json.publicUrl)\n  ? item.json.publicUrl.filter(Boolean)\n  : [];\n\nreturn {\n  json: {\n    contact: {\n      ...item.json.contact,\n      fileUploads: urls,\n      imageUrlsText: urls.join('\\n')\n    }\n  }\n};"
+      },
+      "id": "69c02298-8c70-473c-a862-6da5ed3bcc28",
+      "name": "Finalize Contact With Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item;\n\nreturn {\n  json: {\n    contact: {\n      ...item.json.contact,\n      fileUploads: [],\n      imageUrlsText: ''\n    }\n  }\n};"
+      },
+      "id": "8f0036c8-e68d-45a4-b4c9-06d20f936db6",
+      "name": "Finalize Contact Without Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/contacts/upsert/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  locationId: 'REPLACE_WITH_LOCATION_ID',\n  firstName: $json.contact.firstName,\n  lastName: $json.contact.lastName,\n  email: $json.contact.email,\n  phone: $json.contact.phone,\n  address1: $json.contact.address1,\n  city: $json.contact.city,\n  state: $json.contact.state,\n  postalCode: $json.contact.postalCode,\n  country: $json.contact.country,\n  tags: ['website contact form', 'website quote form'],\n  customFields: [\n    {\n      id: 'REPLACE_WITH_SQUARE_FEET_FIELD_ID',\n      key: 'Square Feet of Slabs',\n      field_value: $json.contact.squareFeetOfSlabs,\n    },\n    {\n      id: 'REPLACE_WITH_IMAGE_URLS_FIELD_ID',\n      key: 'Images of Concrete',\n      field_value: $json.contact.imageUrlsText,\n    },\n    {\n      id: 'REPLACE_WITH_NOTES_FIELD_ID',\n      key: 'Notes',\n      field_value: $json.contact.notes,\n    },\n  ],\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5f593437-1801-4c15-b5a9-0142763f454d",
+      "name": "Upsert Contact @ HighLevel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\":true,\"message\":\"Estimate request saved.\"}",
+        "options": {}
+      },
+      "id": "05c3a286-16ca-47ec-bbe4-e7cc58aeaf7d",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2680,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Submission": {
+      "main": [
+        [
+          {
+            "node": "Has Uploads?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Original Contact + URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Uploads?": {
+      "main": [
+        [
+          {
+            "node": "Split Out Uploads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Contact Without Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Uploads": {
+      "main": [
+        [
+          {
+            "node": "Prepare Upload Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload Item": {
+      "main": [
+        [
+          {
+            "node": "Upload to R2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to R2": {
+      "main": [
+        [
+          {
+            "node": "Keep Uploaded URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Uploaded URL": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Image URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Image URLs": {
+      "main": [
+        [
+          {
+            "node": "Merge Original Contact + URLs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Original Contact + URLs": {
+      "main": [
+        [
+          {
+            "node": "Finalize Contact With Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Contact With Images": {
+      "main": [
+        [
+          {
+            "node": "Upsert Contact @ HighLevel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Contact Without Images": {
+      "main": [
+        [
+          {
+            "node": "Upsert Contact @ HighLevel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Contact @ HighLevel": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chicago",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

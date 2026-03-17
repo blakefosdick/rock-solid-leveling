@@ -35,6 +35,9 @@ VITE_N8N_FORM_ID=rock-solid-website
 
 If `VITE_N8N_WEBHOOK_URL` is omitted, the quote form falls back to the existing share sheet and email draft flow.
 
+For GitHub Pages deploys, set `VITE_N8N_WEBHOOK_URL` as a GitHub Actions repository variable. The deploy workflow injects that value during the production build.
+Use `/webhook-test/...` only while manually listening in n8n test mode. For the live site, use the active `/webhook/...` URL.
+
 ## Production build
 
 ```bash
