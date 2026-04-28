@@ -15,8 +15,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: cloudflare-pages-${{ github.ref }}
+  group: cloudflare-pages-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+env:
+  CLOUDFLARE_PROJECT_NAME: ${{ vars.CLOUDFLARE_PROJECT_NAME || 'rock-solid-leveling' }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
 
 jobs:
   preview:
@@ -33,6 +37,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "Missing required secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          if [ -z "${{ env.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "Missing Cloudflare account id. Set CLOUDFLARE_ACCOUNT_ID as a repo secret or variable."
+            exit 1
+          fi
+
       - name: Install dependencies
         run: npm ci
 
@@ -47,8 +62,8 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=rock-solid-leveling --branch=${{ github.head_ref }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ env.CLOUDFLARE_PROJECT_NAME }} --branch=${{ github.head_ref }}
 
       - name: Comment preview URL on PR
         if: steps.deploy.outputs.deployment-url != ''
@@ -95,6 +110,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "Missing required secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          if [ -z "${{ env.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "Missing Cloudflare account id. Set CLOUDFLARE_ACCOUNT_ID as a repo secret or variable."
+            exit 1
+          fi
+
       - name: Install dependencies
         run: npm ci
 
@@ -108,5 +134,5 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=rock-solid-leveling --branch=main
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ env.CLOUDFLARE_PROJECT_NAME }} --branch=main
