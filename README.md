@@ -82,6 +82,13 @@ To route the website form to this function, set:
 
 - `VITE_N8N_WEBHOOK_URL=/rock-solid-website-quote`
 
+
+### Important deployment note (fixes 404 on `/rock-solid-website-quote`)
+
+If your deploy path uses Wrangler with `wrangler.jsonc`, this repo now uses a Worker entrypoint (`_worker.js`) that serves static assets and handles `POST /rock-solid-website-quote` directly.
+
+That means the quote endpoint works even when Cloudflare Pages Functions are not active in your environment.
+
 ## Production build
 
 ```bash

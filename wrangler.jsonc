@@ -1,5 +1,6 @@
 {
   "name": "rock-solid-leveling",
+  "main": "_worker.js",
   "compatibility_date": "2026-04-28",
   "assets": {
     "directory": "./dist"
