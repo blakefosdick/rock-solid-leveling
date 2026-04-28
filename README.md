@@ -54,6 +54,34 @@ The quote form is submitted client-side from `src/App.tsx`:
 
 Important: because this is a static frontend, the webhook URL is exposed to the browser at runtime. Protect the receiving workflow with validation/rate limiting.
 
+
+## Cloudflare Worker/Pages Function replacement for n8n
+
+This repo now includes a Cloudflare Pages Function endpoint at:
+
+- `POST /rock-solid-website-quote`
+
+It replicates the n8n flow by:
+
+1. Parsing the website `multipart/form-data` payload.
+2. Uploading any `images` files to an R2 bucket with dated object keys.
+3. Building public image URLs using `IMAGE_PUBLIC_BASE_URL`.
+4. Upserting the contact to HighLevel (`/contacts/upsert`) with your tags + custom fields.
+
+Required Cloudflare bindings/secrets for the function:
+
+- `QUOTE_IMAGES_BUCKET` (R2 bucket binding, expected bucket: `quote-images`)
+- `HIGHLEVEL_API_TOKEN` (secret)
+- `HIGHLEVEL_LOCATION_ID`
+- `HIGHLEVEL_SLABS_FIELD_ID`
+- `HIGHLEVEL_IMAGES_FIELD_ID`
+- `HIGHLEVEL_NOTES_FIELD_ID`
+- `IMAGE_PUBLIC_BASE_URL` (example: `https://images.rocksolidleveling.com`)
+
+To route the website form to this function, set:
+
+- `VITE_N8N_WEBHOOK_URL=/rock-solid-website-quote`
+
 ## Production build
 
 ```bash
