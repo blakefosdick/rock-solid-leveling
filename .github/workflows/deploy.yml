@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Pages
+name: CI Build
 
 on:
   pull_request:
@@ -12,19 +12,13 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
-  group: cloudflare-pages-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  CLOUDFLARE_PROJECT_NAME: ${{ vars.CLOUDFLARE_PROJECT_NAME || 'rock-solid-leveling' }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
-
 jobs:
-  preview:
-    if: github.event_name == 'pull_request'
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -37,17 +31,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Validate Cloudflare credentials
-        run: |
-          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
-            echo "Missing required secret: CLOUDFLARE_API_TOKEN"
-            exit 1
-          fi
-          if [ -z "${{ env.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "Missing Cloudflare account id. Set CLOUDFLARE_ACCOUNT_ID as a repo secret or variable."
-            exit 1
-          fi
-
       - name: Install dependencies
         run: npm ci
 
@@ -56,83 +39,3 @@ jobs:
         env:
           VITE_N8N_WEBHOOK_URL: ${{ vars.VITE_N8N_WEBHOOK_URL }}
           VITE_N8N_FORM_ID: rock-solid-website
-
-      - name: Deploy preview to Cloudflare Pages
-        id: deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=${{ env.CLOUDFLARE_PROJECT_NAME }} --branch=${{ github.head_ref }}
-
-      - name: Comment preview URL on PR
-        if: steps.deploy.outputs.deployment-url != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const url = `${{ steps.deploy.outputs.deployment-url }}`;
-            const body = `✅ Cloudflare Pages preview is ready: ${url}`;
-            const comments = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.data.find((comment) =>
-              comment.user.type === 'Bot' && comment.body.includes('Cloudflare Pages preview is ready:'),
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
-
-  production:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Validate Cloudflare credentials
-        run: |
-          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
-            echo "Missing required secret: CLOUDFLARE_API_TOKEN"
-            exit 1
-          fi
-          if [ -z "${{ env.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "Missing Cloudflare account id. Set CLOUDFLARE_ACCOUNT_ID as a repo secret or variable."
-            exit 1
-          fi
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build site
-        run: npm run build
-        env:
-          VITE_N8N_WEBHOOK_URL: ${{ vars.VITE_N8N_WEBHOOK_URL }}
-          VITE_N8N_FORM_ID: rock-solid-website
-
-      - name: Deploy production to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=${{ env.CLOUDFLARE_PROJECT_NAME }} --branch=main
