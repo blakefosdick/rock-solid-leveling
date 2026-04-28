@@ -38,6 +38,22 @@ If `VITE_N8N_WEBHOOK_URL` is omitted, the quote form falls back to the existing 
 For Cloudflare Pages deploys, set `VITE_N8N_WEBHOOK_URL` as a Cloudflare Pages environment variable. The production build injects that value at build time.
 Use `/webhook-test/...` only while manually listening in n8n test mode. For the live site, use the active `/webhook/...` URL.
 
+### Quote form submission flow (sanity check)
+
+The quote form is submitted client-side from `src/App.tsx`:
+
+1. If `VITE_N8N_WEBHOOK_URL` is set, the browser sends a `POST` request directly to that webhook URL.
+2. The request body is `multipart/form-data` and includes:
+   - contact fields (`fullName`, `phone`, `email`, `address`)
+   - request details (`squareFeet`, `details`)
+   - metadata (`formID`, `submissionID`, `rawRequest`, etc.)
+   - uploaded photos under repeated `images` form-data keys
+3. If webhook submission fails (or if `VITE_N8N_WEBHOOK_URL` is not configured), the form falls back to:
+   - native device share sheet (when available), or
+   - opening a `mailto:` draft to `info@rocksolidleveling.com` with the request summary.
+
+Important: because this is a static frontend, the webhook URL is exposed to the browser at runtime. Protect the receiving workflow with validation/rate limiting.
+
 ## Production build
 
 ```bash
