@@ -13,7 +13,8 @@ const afterImage = "./media/after.jpg";
 const navLinks = [
   { href: "#services", label: "Services" },
   { href: "#process", label: "Our Process" },
-  { href: "#results", label: "Results" }
+  { href: "#results", label: "Results" },
+  { href: "#faq", label: "FAQ" }
 ];
 
 const benefitItems = [
@@ -87,6 +88,7 @@ const footerLinks = [
   { href: "#services", label: "Services" },
   { href: "#process", label: "Our Process" },
   { href: "#results", label: "Before & After" },
+  { href: "#faq", label: "FAQ" },
   { href: "#estimate", label: "Free Estimate" },
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
 ];
