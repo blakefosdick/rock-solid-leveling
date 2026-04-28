@@ -89,6 +89,8 @@ If your deploy path uses Wrangler with `wrangler.jsonc`, this repo now uses a Wo
 
 That means the quote endpoint works even when Cloudflare Pages Functions are not active in your environment.
 
+If you are deploying from Codex Cloud PR builds, create a new commit/PR update to trigger a fresh deploy whenever function or worker code changes.
+
 ## Production build
 
 ```bash
