@@ -11,9 +11,31 @@ export default {
 };
 
 async function handleQuoteSubmission(request, env) {
+  try {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
     return json({ success: false, message: "Expected multipart/form-data." }, 400);
+  }
+
+  const missingConfig = [
+    "QUOTE_IMAGES_BUCKET",
+    "HIGHLEVEL_API_TOKEN",
+    "HIGHLEVEL_LOCATION_ID",
+    "HIGHLEVEL_SLABS_FIELD_ID",
+    "HIGHLEVEL_IMAGES_FIELD_ID",
+    "HIGHLEVEL_NOTES_FIELD_ID",
+    "IMAGE_PUBLIC_BASE_URL"
+  ].filter((key) => !env[key]);
+
+  if (missingConfig.length > 0) {
+    return json(
+      {
+        success: false,
+        message: "Worker configuration is incomplete.",
+        detail: `Missing bindings/vars: ${missingConfig.join(", ")}`
+      },
+      500
+    );
   }
 
   const form = await request.formData();
@@ -94,6 +116,10 @@ async function handleQuoteSubmission(request, env) {
   }
 
   return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return json({ success: false, message: "Unhandled worker error.", detail }, 500);
+  }
 }
 
 function json(body, status = 200) {
