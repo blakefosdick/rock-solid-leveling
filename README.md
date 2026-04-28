@@ -70,6 +70,7 @@ You already created the Cloudflare application (`rock-solid-leveling`), so these
    - Build command: `npm run build`
    - Build output directory: `dist`
 3. Add environment variables in Cloudflare Pages (`Production` and optionally `Preview`):
+   - If Cloudflare is using `npx wrangler versions upload` as the deploy command, keep `wrangler.jsonc` in the repo root so Wrangler knows to upload `dist` as static assets.
    - `VITE_N8N_WEBHOOK_URL`
    - `VITE_N8N_FORM_ID` (optional, defaults to `rock-solid-website`)
 4. Remove the GitHub Pages custom-domain artifact from this repo:
