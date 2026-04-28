@@ -393,104 +393,56 @@ function QuoteForm() {
 
     setStatusMessage("");
 
-    if (n8nWebhookUrl) {
-      try {
-        setIsSubmitting(true);
+    if (!n8nWebhookUrl) {
+      setStatusMessage(
+        "This form endpoint is not configured yet. Please call or email us while we finish setup."
+      );
+      return;
+    }
 
-        const response = await fetch(n8nWebhookUrl, {
-          method: "POST",
-          body: buildWebhookPayload({
-            name,
-            phone,
-            email,
-            address,
-            squareFeet,
-            details,
-            images
-          })
-        });
+    try {
+      setIsSubmitting(true);
 
-        if (!response.ok) {
-          throw new Error(`Webhook request failed with status ${response.status}`);
-        }
+      const response = await fetch(n8nWebhookUrl, {
+        method: "POST",
+        body: buildWebhookPayload({
+          name,
+          phone,
+          email,
+          address,
+          squareFeet,
+          details,
+          images
+        })
+      });
 
-        setName("");
-        setPhone("");
-        setEmail("");
-        setAddress("");
-        setSquareFeet("");
-        setDetails("");
-        setImages([]);
-
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-
-        setStatusMessage("Thanks. Your estimate request was sent successfully.");
-        return;
-      } catch (error) {
-        console.error("n8n webhook submission failed", error);
-        setStatusMessage(
-          "We could not send your request through the site right now, so we'll open backup sharing/email options next."
-        );
-      } finally {
-        setIsSubmitting(false);
+      if (!response.ok) {
+        throw new Error(`Webhook request failed with status ${response.status}`);
       }
-    }
 
-    const requestSummary = [
-      `Full Name: ${name}`,
-      `Phone Number: ${phone}`,
-      `Email Address: ${email}`,
-      `Service Address: ${address}`,
-      `Square Feet of Slabs: ${squareFeet || "Not provided"}`,
-      `Selected Images: ${
-        images.length > 0
-          ? images.map((image) => image.name).join(", ")
-          : "No images selected"
-      }`,
-      "",
-      "Issue Description:",
-      details
-    ].join("\n");
-    const subject = `Free estimate request from ${name}`;
-    const shareData: ShareData = {
-      title: subject,
-      text: requestSummary
-    };
+      setName("");
+      setPhone("");
+      setEmail("");
+      setAddress("");
+      setSquareFeet("");
+      setDetails("");
+      setImages([]);
 
-    if (images.length > 0) {
-      shareData.files = images;
-    }
-
-    if (
-      images.length > 0 &&
-      typeof navigator.share === "function" &&
-      (typeof navigator.canShare !== "function" || navigator.canShare(shareData))
-    ) {
-      try {
-        await navigator.share(shareData);
-        setStatusMessage(
-          "Your device share sheet opened so you can send the request with the selected images."
-        );
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          setStatusMessage("Sharing was canceled. Your request details are still in the form.");
-          return;
-        }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
-    }
 
-    const encodedSubject = encodeURIComponent(subject);
-    const encodedBody = encodeURIComponent(requestSummary);
-    setStatusMessage(
-      images.length > 0
-        ? `Your email draft is opening now. If the selected photos are not attached automatically, please send them in a follow-up email or text to ${contactDetails.phoneDisplay}.`
-        : "Your email draft is opening now."
-    );
-    window.location.href = `${contactDetails.emailHref}?subject=${encodedSubject}&body=${encodedBody}`;
+      setStatusMessage("Thanks. Your estimate request was sent successfully.");
+    } catch (error) {
+      console.error("Quote webhook submission failed", error);
+      setStatusMessage(
+        "We could not submit your request right now. Please call us at (704) 361-1444 while we fix this."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
 
   return (
     <form className="quote-form" onSubmit={onSubmit}>
