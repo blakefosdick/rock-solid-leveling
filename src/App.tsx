@@ -417,7 +417,11 @@ function QuoteForm() {
       });
 
       if (!response.ok) {
-        throw new Error(`Webhook request failed with status ${response.status}`);
+        const responseText = await response.text();
+        const detail = responseText.slice(0, 220).trim();
+        throw new Error(
+          `Webhook request failed with status ${response.status}${detail ? `: ${detail}` : ""}`
+        );
       }
 
       setName("");
@@ -435,9 +439,14 @@ function QuoteForm() {
       setStatusMessage("Thanks. Your estimate request was sent successfully.");
     } catch (error) {
       console.error("Quote webhook submission failed", error);
-      setStatusMessage(
-        "We could not submit your request right now. Please call us at (704) 361-1444 while we fix this."
-      );
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      if (detail.includes("status 404")) {
+        setStatusMessage(
+          "Submission endpoint not found (404). The Cloudflare function may not be deployed yet."
+        );
+      } else {
+        setStatusMessage(`We could not submit your request right now (${detail}).`);
+      }
     } finally {
       setIsSubmitting(false);
     }
