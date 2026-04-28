@@ -87,34 +87,6 @@ You already created the Cloudflare application (`rock-solid-leveling`), so these
    - form submission path with production webhook
    - `robots.txt` and `sitemap.xml` URLs
 
-### If your Cloudflare screen shows Worker deploy commands
-
-If you see `Deploy command: npx wrangler deploy`, you're in a **Workers build** flow, not the simpler Pages static flow used by this repo.
-
-If you do **not** see an "Output directory" field, that's expected in this Workers UI.
-In that case, the static output folder is provided via Wrangler deploy arguments instead of a separate form field.
-
-For this Vite marketing site, use these project settings:
-
-- Build command: `npm run build`
-- Output directory: `dist` (Pages UI) **or** `--assets=dist` in deploy command (Workers UI)
-- Root directory: `/`
-- Production branch: `main`
-- Environment variables:
-  - `VITE_N8N_WEBHOOK_URL`
-  - `VITE_N8N_FORM_ID` (optional)
-
-Workers UI deploy command example for this repo:
-
-- `npx wrangler deploy --assets=dist`
-
-Recommended cleanup in that screen:
-
-1. Reconnect GitHub (your screenshot shows it's disconnected).
-2. Keep preview builds for non-production branches enabled.
-3. Restrict build watch paths if desired (for example: `src/**`, `public/**`, `package.json`, `package-lock.json`, `vite.config.ts`).
-4. Clear build cache once after changing build/runtime settings.
-
 ## Legacy GitHub Pages note
 
 If you still have a `.github/workflows/deploy.yml` workflow for Pages, disable or remove it once Cloudflare is serving production traffic.
