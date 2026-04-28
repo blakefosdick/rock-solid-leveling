@@ -33,7 +33,7 @@ VITE_N8N_WEBHOOK_URL=https://your-n8n-domain/webhook/your-webhook-id
 VITE_N8N_FORM_ID=rock-solid-website
 ```
 
-If `VITE_N8N_WEBHOOK_URL` is omitted, the quote form falls back to the existing share sheet and email draft flow.
+If `VITE_N8N_WEBHOOK_URL` is omitted, the frontend now defaults to the local Cloudflare Pages Function route (`/rock-solid-website-quote`). If that request fails, the form falls back to share sheet/email draft flow.
 
 For Cloudflare Pages deploys, set `VITE_N8N_WEBHOOK_URL` as a Cloudflare Pages environment variable. The production build injects that value at build time.
 Use `/webhook-test/...` only while manually listening in n8n test mode. For the live site, use the active `/webhook/...` URL.

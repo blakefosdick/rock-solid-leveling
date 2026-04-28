@@ -93,7 +93,8 @@ const footerLinks = [
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
 ];
 
-const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() ?? "";
+const n8nWebhookUrl =
+  import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() || "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
 
 const createSubmissionId = () => {
@@ -430,7 +431,7 @@ function QuoteForm() {
       } catch (error) {
         console.error("n8n webhook submission failed", error);
         setStatusMessage(
-          "We could not send your request through the site right now. Your email draft is opening so you can still reach us."
+          "We could not send your request through the site right now, so we'll open backup sharing/email options next."
         );
       } finally {
         setIsSubmitting(false);
