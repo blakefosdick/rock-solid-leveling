@@ -29,28 +29,23 @@ npm run dev
 To enable direct form submissions, copy `.env.example` to `.env` and set:
 
 ```bash
-VITE_N8N_WEBHOOK_URL=https://your-n8n-domain/webhook/your-webhook-id
 VITE_N8N_FORM_ID=rock-solid-website
 ```
 
-If `VITE_N8N_WEBHOOK_URL` is omitted, the frontend now defaults to the local Cloudflare Pages Function route (`/rock-solid-website-quote`). If that request fails, the form falls back to share sheet/email draft flow.
+The quote form always submits to the in-project endpoint `/rock-solid-website-quote`.
 
-For Cloudflare Pages deploys, set `VITE_N8N_WEBHOOK_URL` as a Cloudflare Pages environment variable. The production build injects that value at build time.
-Use `/webhook-test/...` only while manually listening in n8n test mode. For the live site, use the active `/webhook/...` URL.
 
 ### Quote form submission flow (sanity check)
 
 The quote form is submitted client-side from `src/App.tsx`:
 
-1. If `VITE_N8N_WEBHOOK_URL` is set, the browser sends a `POST` request directly to that webhook URL.
+1. The browser sends a `POST` request to `/rock-solid-website-quote` on the same site origin.
 2. The request body is `multipart/form-data` and includes:
    - contact fields (`fullName`, `phone`, `email`, `address`)
    - request details (`squareFeet`, `details`)
    - metadata (`formID`, `submissionID`, `rawRequest`, etc.)
    - uploaded photos under repeated `images` form-data keys
-3. If webhook submission fails (or if `VITE_N8N_WEBHOOK_URL` is not configured), the form falls back to:
-   - native device share sheet (when available), or
-   - opening a `mailto:` draft to `info@rocksolidleveling.com` with the request summary.
+3. If submission fails, the form stays on-page and shows an error message so users can retry or call directly.
 
 Important: because this is a static frontend, the webhook URL is exposed to the browser at runtime. Protect the receiving workflow with validation/rate limiting.
 
@@ -80,8 +75,6 @@ Required Cloudflare bindings/secrets for the function:
 
 To route the website form to this function, set:
 
-- `VITE_N8N_WEBHOOK_URL=/rock-solid-website-quote`
-
 
 ### Important deployment note (fixes 404 on `/rock-solid-website-quote`)
 
@@ -108,7 +101,6 @@ You already created the Cloudflare application (`rock-solid-leveling`), so these
    - Build output directory: `dist`
 3. Add environment variables in Cloudflare Pages (`Production` and optionally `Preview`):
    - If Cloudflare is using `npx wrangler versions upload` as the deploy command, keep `wrangler.jsonc` in the repo root so Wrangler knows to upload `dist` as static assets.
-   - `VITE_N8N_WEBHOOK_URL`
    - `VITE_N8N_FORM_ID` (optional, defaults to `rock-solid-website`)
 4. Remove the GitHub Pages custom-domain artifact from this repo:
    - Delete `public/CNAME` (not needed for Cloudflare Pages).

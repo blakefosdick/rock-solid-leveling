@@ -93,8 +93,7 @@ const footerLinks = [
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
 ];
 
-const n8nWebhookUrl =
-  import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() || "/rock-solid-website-quote";
+const n8nWebhookUrl = "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
 
 const createSubmissionId = () => {
