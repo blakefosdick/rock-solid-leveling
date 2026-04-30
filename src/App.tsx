@@ -417,7 +417,17 @@ function QuoteForm() {
 
       if (!response.ok) {
         const responseText = await response.text();
-        const detail = responseText.slice(0, 220).trim();
+        let detail = responseText.trim();
+
+        try {
+          const parsed = JSON.parse(responseText) as { message?: string; detail?: string };
+          if (parsed?.detail || parsed?.message) {
+            detail = [parsed.message, parsed.detail].filter(Boolean).join(" | ");
+          }
+        } catch {
+          // Keep raw response text when JSON parsing fails.
+        }
+
         throw new Error(
           `Webhook request failed with status ${response.status}${detail ? `: ${detail}` : ""}`
         );
