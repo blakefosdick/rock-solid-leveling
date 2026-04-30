@@ -1,3 +1,17 @@
+
+export const onRequestGet: PagesFunction<Env> = async ({ env }) =>
+  json({
+    success: true,
+    runtime: "pages-function",
+    hasQuoteImagesBucket: Boolean(env.QUOTE_IMAGES_BUCKET),
+    hasHighLevelApiToken: Boolean(env.HIGHLEVEL_API_TOKEN),
+    hasLocationId: Boolean(env.HIGHLEVEL_LOCATION_ID),
+    hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
+    hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
+    hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
+    hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL)
+  });
+
 interface Env {
   QUOTE_IMAGES_BUCKET: R2Bucket;
   HIGHLEVEL_API_TOKEN: string;
