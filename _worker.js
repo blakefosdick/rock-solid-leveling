@@ -17,14 +17,17 @@ async function handleQuoteSubmission(request, env) {
     return json({ success: false, message: "Expected multipart/form-data." }, 400);
   }
 
+  const config = {
+    locationId: env.HIGHLEVEL_LOCATION_ID || "Tfkw5X9Yaj3OU0ZwyzYz",
+    slabsFieldId: env.HIGHLEVEL_SLABS_FIELD_ID || "5pX0DhPVGkwPQ4sAoIjz",
+    imagesFieldId: env.HIGHLEVEL_IMAGES_FIELD_ID || "XGPeq5EV1xvOP9fRPsNt",
+    notesFieldId: env.HIGHLEVEL_NOTES_FIELD_ID || "wIkVaPWQuiJJjcxbci49",
+    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || "https://images.rocksolidleveling.com"
+  };
+
   const missingConfig = [
     "QUOTE_IMAGES_BUCKET",
-    "HIGHLEVEL_API_TOKEN",
-    "HIGHLEVEL_LOCATION_ID",
-    "HIGHLEVEL_SLABS_FIELD_ID",
-    "HIGHLEVEL_IMAGES_FIELD_ID",
-    "HIGHLEVEL_NOTES_FIELD_ID",
-    "IMAGE_PUBLIC_BASE_URL"
+    "HIGHLEVEL_API_TOKEN"
   ].filter((key) => !env[key]);
 
   if (missingConfig.length > 0) {
@@ -78,11 +81,11 @@ async function handleQuoteSubmission(request, env) {
       }
     });
 
-    uploadedUrls.push(`${String(env.IMAGE_PUBLIC_BASE_URL || "").replace(/\/$/, "")}/${objectKey}`);
+    uploadedUrls.push(`${String(config.imagePublicBaseUrl).replace(/\/$/, "")}/${objectKey}`);
   }
 
   const highLevelPayload = {
-    locationId: env.HIGHLEVEL_LOCATION_ID,
+    locationId: config.locationId,
     firstName: name.firstName,
     lastName: name.lastName,
     email: String(form.get("email") || raw?.q5_email5 || "").trim(),
@@ -94,9 +97,9 @@ async function handleQuoteSubmission(request, env) {
     country: "United States",
     tags: ["website contact form", "website quote form"],
     customFields: [
-      { id: env.HIGHLEVEL_SLABS_FIELD_ID, key: "Square Feet of Slabs", field_value: String(form.get("squareFeet") || raw?.q13_number || "").trim() },
-      { id: env.HIGHLEVEL_IMAGES_FIELD_ID, key: "Images of Concrete", field_value: uploadedUrls.join("\n") },
-      { id: env.HIGHLEVEL_NOTES_FIELD_ID, key: "Notes", field_value: String(form.get("details") || raw?.q17_anyNotes || "").trim() }
+      { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: String(form.get("squareFeet") || raw?.q13_number || "").trim() },
+      { id: config.imagesFieldId, key: "Images of Concrete", field_value: uploadedUrls.join("\n") },
+      { id: config.notesFieldId, key: "Notes", field_value: String(form.get("details") || raw?.q17_anyNotes || "").trim() }
     ]
   };
 

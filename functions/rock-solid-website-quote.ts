@@ -57,14 +57,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return json({ success: false, message: "Expected multipart/form-data." }, 400);
   }
 
+  const config = {
+    locationId: env.HIGHLEVEL_LOCATION_ID || "Tfkw5X9Yaj3OU0ZwyzYz",
+    slabsFieldId: env.HIGHLEVEL_SLABS_FIELD_ID || "5pX0DhPVGkwPQ4sAoIjz",
+    imagesFieldId: env.HIGHLEVEL_IMAGES_FIELD_ID || "XGPeq5EV1xvOP9fRPsNt",
+    notesFieldId: env.HIGHLEVEL_NOTES_FIELD_ID || "wIkVaPWQuiJJjcxbci49",
+    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || "https://images.rocksolidleveling.com"
+  };
+
   const missingConfig = [
     "QUOTE_IMAGES_BUCKET",
-    "HIGHLEVEL_API_TOKEN",
-    "HIGHLEVEL_LOCATION_ID",
-    "HIGHLEVEL_SLABS_FIELD_ID",
-    "HIGHLEVEL_IMAGES_FIELD_ID",
-    "HIGHLEVEL_NOTES_FIELD_ID",
-    "IMAGE_PUBLIC_BASE_URL"
+    "HIGHLEVEL_API_TOKEN"
   ].filter((key) => !(env as Record<string, unknown>)[key]);
 
   if (missingConfig.length > 0) {
@@ -116,7 +119,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
     });
 
-    uploadedUrls.push(`${env.IMAGE_PUBLIC_BASE_URL.replace(/\/$/, "")}/${objectKey}`);
+    uploadedUrls.push(`${config.imagePublicBaseUrl.replace(/\/$/, "")}/${objectKey}`);
   }
 
   const contact: ContactPayload = {
@@ -137,7 +140,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   };
 
   const highLevelPayload = {
-    locationId: env.HIGHLEVEL_LOCATION_ID,
+    locationId: config.locationId,
     firstName: contact.firstName,
     lastName: contact.lastName,
     email: contact.email,
@@ -149,9 +152,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     country: contact.country,
     tags: ["website contact form", "website quote form"],
     customFields: [
-      { id: env.HIGHLEVEL_SLABS_FIELD_ID, key: "Square Feet of Slabs", field_value: contact.squareFeetOfSlabs },
-      { id: env.HIGHLEVEL_IMAGES_FIELD_ID, key: "Images of Concrete", field_value: contact.imageUrlsText },
-      { id: env.HIGHLEVEL_NOTES_FIELD_ID, key: "Notes", field_value: contact.notes }
+      { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: contact.squareFeetOfSlabs },
+      { id: config.imagesFieldId, key: "Images of Concrete", field_value: contact.imageUrlsText },
+      { id: config.notesFieldId, key: "Notes", field_value: contact.notes }
     ]
   };
 
