@@ -93,7 +93,7 @@ const footerLinks = [
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
 ];
 
-const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() ?? "";
+const n8nWebhookUrl = "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
 
 const createSubmissionId = () => {
@@ -392,104 +392,75 @@ function QuoteForm() {
 
     setStatusMessage("");
 
-    if (n8nWebhookUrl) {
-      try {
-        setIsSubmitting(true);
+    if (!n8nWebhookUrl) {
+      setStatusMessage(
+        "This form endpoint is not configured yet. Please call or email us while we finish setup."
+      );
+      return;
+    }
 
-        const response = await fetch(n8nWebhookUrl, {
-          method: "POST",
-          body: buildWebhookPayload({
-            name,
-            phone,
-            email,
-            address,
-            squareFeet,
-            details,
-            images
-          })
-        });
+    try {
+      setIsSubmitting(true);
 
-        if (!response.ok) {
-          throw new Error(`Webhook request failed with status ${response.status}`);
+      const response = await fetch(n8nWebhookUrl, {
+        method: "POST",
+        body: buildWebhookPayload({
+          name,
+          phone,
+          email,
+          address,
+          squareFeet,
+          details,
+          images
+        })
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        let detail = responseText.trim();
+
+        try {
+          const parsed = JSON.parse(responseText) as { message?: string; detail?: string };
+          if (parsed?.detail || parsed?.message) {
+            detail = [parsed.message, parsed.detail].filter(Boolean).join(" | ");
+          }
+        } catch {
+          // Keep raw response text when JSON parsing fails.
         }
 
-        setName("");
-        setPhone("");
-        setEmail("");
-        setAddress("");
-        setSquareFeet("");
-        setDetails("");
-        setImages([]);
-
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-
-        setStatusMessage("Thanks. Your estimate request was sent successfully.");
-        return;
-      } catch (error) {
-        console.error("n8n webhook submission failed", error);
-        setStatusMessage(
-          "We could not send your request through the site right now. Your email draft is opening so you can still reach us."
+        throw new Error(
+          `Webhook request failed with status ${response.status}${detail ? `: ${detail}` : ""}`
         );
-      } finally {
-        setIsSubmitting(false);
       }
-    }
 
-    const requestSummary = [
-      `Full Name: ${name}`,
-      `Phone Number: ${phone}`,
-      `Email Address: ${email}`,
-      `Service Address: ${address}`,
-      `Square Feet of Slabs: ${squareFeet || "Not provided"}`,
-      `Selected Images: ${
-        images.length > 0
-          ? images.map((image) => image.name).join(", ")
-          : "No images selected"
-      }`,
-      "",
-      "Issue Description:",
-      details
-    ].join("\n");
-    const subject = `Free estimate request from ${name}`;
-    const shareData: ShareData = {
-      title: subject,
-      text: requestSummary
-    };
+      setName("");
+      setPhone("");
+      setEmail("");
+      setAddress("");
+      setSquareFeet("");
+      setDetails("");
+      setImages([]);
 
-    if (images.length > 0) {
-      shareData.files = images;
-    }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
 
-    if (
-      images.length > 0 &&
-      typeof navigator.share === "function" &&
-      (typeof navigator.canShare !== "function" || navigator.canShare(shareData))
-    ) {
-      try {
-        await navigator.share(shareData);
+      setStatusMessage("Thanks. Your estimate request was sent successfully.");
+    } catch (error) {
+      console.error("Quote webhook submission failed", error);
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      if (detail.includes("status 404")) {
         setStatusMessage(
-          "Your device share sheet opened so you can send the request with the selected images."
+          "Submission endpoint not found (404). The Cloudflare function may not be deployed yet."
         );
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          setStatusMessage("Sharing was canceled. Your request details are still in the form.");
-          return;
-        }
+      } else {
+        setStatusMessage(`We could not submit your request right now (${detail}).`);
       }
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const encodedSubject = encodeURIComponent(subject);
-    const encodedBody = encodeURIComponent(requestSummary);
-    setStatusMessage(
-      images.length > 0
-        ? `Your email draft is opening now. If the selected photos are not attached automatically, please send them in a follow-up email or text to ${contactDetails.phoneDisplay}.`
-        : "Your email draft is opening now."
-    );
-    window.location.href = `${contactDetails.emailHref}?subject=${encodedSubject}&body=${encodedBody}`;
   };
+
 
   return (
     <form className="quote-form" onSubmit={onSubmit}>

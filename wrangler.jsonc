@@ -1,7 +1,20 @@
 {
   "name": "rock-solid-leveling",
+  "main": "_worker.js",
   "compatibility_date": "2026-04-28",
   "assets": {
     "directory": "./dist"
+  },
+  "r2_buckets": [
+    {
+      "binding": "QUOTE_IMAGES_BUCKET",
+      "bucket_name": "quote-images"
+    }
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
   }
 }
