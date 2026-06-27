@@ -66,12 +66,14 @@ It replicates the n8n flow by:
 Required Cloudflare bindings/secrets for the function:
 
 - `QUOTE_IMAGES_BUCKET` (R2 bucket binding, expected bucket: `quote-images`)
+- `QUOTE_NOTIFICATION_EMAIL` (Email Sending binding; sender domain: `go.rocksolidleveling.com`)
 - `HIGHLEVEL_API_TOKEN` (secret)
 - `HIGHLEVEL_LOCATION_ID`
 - `HIGHLEVEL_SLABS_FIELD_ID`
 - `HIGHLEVEL_IMAGES_FIELD_ID`
 - `HIGHLEVEL_NOTES_FIELD_ID`
 - `IMAGE_PUBLIC_BASE_URL` (example: `https://images.rocksolidleveling.com`)
+- `QUOTE_NOTIFICATION_EMAILS` (comma-separated notification recipients; defaults to `blake@rocksolidleveling.com`)
 
 To route the website form to this function, set:
 

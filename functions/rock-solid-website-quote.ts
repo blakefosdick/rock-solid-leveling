@@ -9,7 +9,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) =>
     hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
     hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
     hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
-    hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL)
+    hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
+    hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
+    hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
   });
 
 interface Env {
@@ -20,6 +22,8 @@ interface Env {
   HIGHLEVEL_IMAGES_FIELD_ID: string;
   HIGHLEVEL_NOTES_FIELD_ID: string;
   IMAGE_PUBLIC_BASE_URL: string;
+  QUOTE_NOTIFICATION_EMAIL: SendEmail;
+  QUOTE_NOTIFICATION_EMAILS: string;
 }
 
 type ContactPayload = {
@@ -64,6 +68,14 @@ const splitFullName = (value: string) => {
   return { firstName, lastName: rest.join(" ") };
 };
 
+const parseNotificationEmails = (value: string) =>
+  [...new Set(
+    String(value || "")
+      .split(",")
+      .map((email) => email.trim())
+      .filter(Boolean)
+  )];
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
   const contentType = request.headers.get("content-type") || "";
@@ -81,8 +93,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const missingConfig = [
     "QUOTE_IMAGES_BUCKET",
-    "HIGHLEVEL_API_TOKEN"
+    "HIGHLEVEL_API_TOKEN",
+    "QUOTE_NOTIFICATION_EMAIL"
   ].filter((key) => !(env as Record<string, unknown>)[key]);
+
+  const notificationRecipients = parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS);
+  if (notificationRecipients.length === 0) {
+    missingConfig.push("QUOTE_NOTIFICATION_EMAILS");
+  }
 
   if (missingConfig.length > 0) {
     return json(
@@ -187,6 +205,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const errText = await upsertResponse.text();
     return json({ success: false, message: "HighLevel upsert failed.", detail: errText }, 502);
   }
+
+  const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Not provided";
+  await env.QUOTE_NOTIFICATION_EMAIL.send({
+    to: notificationRecipients,
+    from: {
+      email: "quotes@go.rocksolidleveling.com",
+      name: "Rock Solid Leveling"
+    },
+    subject: `New quote request from ${fullName}`,
+    text: [
+      "A new quote request was submitted on rocksolidleveling.com.",
+      "",
+      `Name: ${fullName}`,
+      `Address: ${contact.address1 || "Not provided"}`,
+      `Phone: ${contact.phone || "Not provided"}`
+    ].join("\n")
+  });
 
   return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
   } catch (error) {

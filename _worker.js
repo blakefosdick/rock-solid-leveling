@@ -12,7 +12,9 @@ export default {
         hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
         hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
         hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
-        hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL)
+        hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
+        hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
+        hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
       });
     }
 
@@ -41,8 +43,14 @@ async function handleQuoteSubmission(request, env) {
 
   const missingConfig = [
     "QUOTE_IMAGES_BUCKET",
-    "HIGHLEVEL_API_TOKEN"
+    "HIGHLEVEL_API_TOKEN",
+    "QUOTE_NOTIFICATION_EMAIL"
   ].filter((key) => !env[key]);
+
+  const notificationRecipients = parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS);
+  if (notificationRecipients.length === 0) {
+    missingConfig.push("QUOTE_NOTIFICATION_EMAILS");
+  }
 
   if (missingConfig.length > 0) {
     return json(
@@ -132,6 +140,23 @@ async function handleQuoteSubmission(request, env) {
     return json({ success: false, message: "HighLevel upsert failed.", detail: await upsertResponse.text() }, 502);
   }
 
+  const fullName = [name.firstName, name.lastName].filter(Boolean).join(" ") || "Not provided";
+  await env.QUOTE_NOTIFICATION_EMAIL.send({
+    to: notificationRecipients,
+    from: {
+      email: "quotes@go.rocksolidleveling.com",
+      name: "Rock Solid Leveling"
+    },
+    subject: `New quote request from ${fullName}`,
+    text: [
+      "A new quote request was submitted on rocksolidleveling.com.",
+      "",
+      `Name: ${fullName}`,
+      `Address: ${highLevelPayload.address1 || "Not provided"}`,
+      `Phone: ${highLevelPayload.phone || "Not provided"}`
+    ].join("\n")
+  });
+
   return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -160,4 +185,11 @@ function slugify(value, fallback = "file") {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return cleaned || fallback;
+}
+
+function parseNotificationEmails(value) {
+  return [...new Set(String(value || "")
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean))];
 }
