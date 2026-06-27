@@ -117,7 +117,7 @@ async function handleQuoteSubmission(request, env) {
     state: "",
     postalCode: "",
     country: "United States",
-    tags: ["website contact form", "website quote form"],
+    tags: ["website quote form"],
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: String(form.get("squareFeet") || raw?.q13_number || "").trim() },
       { id: config.imagesFieldId, key: "Images of Concrete", field_value: uploadedUrls.join("\n") },

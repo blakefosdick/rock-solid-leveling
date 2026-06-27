@@ -182,7 +182,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     state: contact.state,
     postalCode: contact.postalCode,
     country: contact.country,
-    tags: ["website contact form", "website quote form"],
+    tags: ["website quote form"],
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: contact.squareFeetOfSlabs },
       { id: config.imagesFieldId, key: "Images of Concrete", field_value: contact.imageUrlsText },
