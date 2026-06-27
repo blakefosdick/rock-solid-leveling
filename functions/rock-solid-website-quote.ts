@@ -206,7 +206,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return json({ success: false, message: "HighLevel upsert failed.", detail: errText }, 502);
   }
 
+  const upsertResult = await upsertResponse.json().catch(() => null) as {
+    contact?: { id?: string; locationId?: string };
+  } | null;
+  const contactId = String(upsertResult?.contact?.id || "").trim();
+  const contactLocationId = String(upsertResult?.contact?.locationId || config.locationId).trim();
+  const contactUrl = contactId && contactLocationId
+    ? `https://app.gohighlevel.com/v2/location/${encodeURIComponent(contactLocationId)}/contacts/detail/${encodeURIComponent(contactId)}`
+    : "";
   const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Not provided";
+  const address = contact.address1 || "Not provided";
+  const phone = contact.phone || "Not provided";
   await env.QUOTE_NOTIFICATION_EMAIL.send({
     to: notificationRecipients,
     from: {
@@ -218,9 +228,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       "A new quote request was submitted on rocksolidleveling.com.",
       "",
       `Name: ${fullName}`,
-      `Address: ${contact.address1 || "Not provided"}`,
-      `Phone: ${contact.phone || "Not provided"}`
-    ].join("\n")
+      `Address: ${address}`,
+      `Phone: ${phone}`,
+      ...(contactUrl ? ["", `Open contact in HighLevel: ${contactUrl}`] : [])
+    ].join("\n"),
+    html: buildNotificationHtml({ fullName, address, phone, contactUrl })
   });
 
   return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
@@ -229,3 +241,47 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return json({ success: false, message: "Unhandled function error.", detail }, 500);
   }
 };
+
+const buildNotificationHtml = ({
+  fullName,
+  address,
+  phone,
+  contactUrl
+}: {
+  fullName: string;
+  address: string;
+  phone: string;
+  contactUrl: string;
+}) => {
+  const safeName = escapeHtml(fullName);
+  const safeAddress = escapeHtml(address);
+  const safePhone = escapeHtml(phone);
+  const contactButton = contactUrl
+    ? `<tr><td style="padding:0 32px 32px;"><a href="${escapeHtml(contactUrl)}" style="display:inline-block;background:#e76f2e;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:13px 20px;border-radius:6px;">Open contact in HighLevel</a></td></tr>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:#f2f4f3;font-family:Arial,Helvetica,sans-serif;color:#173f43;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f4f3;padding:24px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #d9e1df;border-radius:10px;overflow:hidden;">
+          <tr><td style="padding:24px 32px;background:#173f43;"><img src="https://rocksolidleveling.com/brand/TextandSlabsHorizontal.png" width="260" alt="Rock Solid Leveling" style="display:block;width:100%;max-width:260px;height:auto;"></td></tr>
+          <tr><td style="padding:30px 32px 12px;"><div style="font-size:13px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#e76f2e;">New quote request</div><h1 style="margin:8px 0 0;font-size:26px;line-height:1.25;color:#173f43;">${safeName}</h1></td></tr>
+          <tr><td style="padding:12px 32px 28px;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:16px;line-height:1.5;"><tr><td style="padding:10px 0;border-bottom:1px solid #e5e9e8;color:#617275;width:90px;">Address</td><td style="padding:10px 0;border-bottom:1px solid #e5e9e8;font-weight:600;">${safeAddress}</td></tr><tr><td style="padding:10px 0;color:#617275;">Phone</td><td style="padding:10px 0;font-weight:600;">${safePhone}</td></tr></table></td></tr>
+          ${contactButton}
+          <tr><td style="padding:18px 32px;background:#edf3f2;font-size:12px;line-height:1.5;color:#617275;">Submitted through the estimate form at rocksolidleveling.com.</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+};
+
+const escapeHtml = (value: string) =>
+  String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
