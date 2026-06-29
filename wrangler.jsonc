@@ -5,6 +5,17 @@
   "assets": {
     "directory": "./dist"
   },
+  "vars": {
+    "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com"
+  },
+  "send_email": [
+    {
+      "name": "QUOTE_NOTIFICATION_EMAIL",
+      "allowed_sender_addresses": [
+        "quotes@go.rocksolidleveling.com"
+      ]
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "QUOTE_IMAGES_BUCKET",
