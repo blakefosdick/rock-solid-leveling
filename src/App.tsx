@@ -14,6 +14,7 @@ const navLinks = [
   { href: "#services", label: "Services" },
   { href: "#process", label: "Our Process" },
   { href: "#results", label: "Results" },
+  { href: "#reviews", label: "Reviews" },
   { href: "#faq", label: "FAQ" }
 ];
 
@@ -75,7 +76,7 @@ const faqs = [
   {
     question: "How long does it last?",
     answer:
-      "Longevity depends on drainage and underlying soil conditions, but properly supported concrete can remain stable for years. We offer an 8 year warranty and lifetime warranty if we caulk the slabs."
+      "Longevity depends on drainage and underlying soil conditions, but properly supported concrete can remain stable for years."
   },
   {
     question: "How long before I can drive on it?",
@@ -88,6 +89,7 @@ const footerLinks = [
   { href: "#services", label: "Services" },
   { href: "#process", label: "Our Process" },
   { href: "#results", label: "Before & After" },
+  { href: "#reviews", label: "Reviews" },
   { href: "#faq", label: "FAQ" },
   { href: "#estimate", label: "Free Estimate" },
   { href: "./terms-and-privacy.html", label: "Terms & Privacy" }
@@ -95,6 +97,50 @@ const footerLinks = [
 
 const n8nWebhookUrl = "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
+const googleReviewsUrl = "https://maps.app.goo.gl/13pJzDvta4psNmd76?g_st=ac";
+
+type GoogleReviewCard = {
+  id: string;
+  authorName: string;
+  relativeTime: string;
+  comment: string;
+  rating: number;
+  profilePhotoUrl?: string;
+};
+
+type GoogleReviewsResponse = {
+  success: boolean;
+  reviews?: GoogleReviewCard[];
+  averageRating?: number;
+  totalReviewCount?: number;
+};
+
+const googleReviewFallbackCards: GoogleReviewCard[] = [
+  {
+    id: "fallback-1",
+    authorName: "Google reviewer",
+    relativeTime: "Recent review",
+    rating: 5,
+    comment:
+      "See current customer feedback for Rock Solid Leveling directly on the Google Business Profile."
+  },
+  {
+    id: "fallback-2",
+    authorName: "Omaha homeowner",
+    relativeTime: "Recent review",
+    rating: 5,
+    comment:
+      "Google reviews give visitors a live look at customer experiences with scheduling, communication, and concrete repairs."
+  },
+  {
+    id: "fallback-3",
+    authorName: "Local customer",
+    relativeTime: "Recent review",
+    rating: 5,
+    comment:
+      "Past customers can use the same Google profile to leave a review after their driveway, walkway, patio, or slab repair."
+  }
+];
 
 const createSubmissionId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -293,6 +339,148 @@ function BeforeAfterSlider() {
       <p className="results-card__caption">
         Drag the slider to compare before and after.
       </p>
+    </div>
+  );
+}
+
+function GoogleReviewsCarousel() {
+  const [reviews, setReviews] = useState<GoogleReviewCard[]>(googleReviewFallbackCards);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const starSlots = [1, 2, 3, 4, 5];
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadReviews = async () => {
+      try {
+        const response = await fetch("/google-reviews");
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as GoogleReviewsResponse;
+        const liveReviews = payload.reviews?.filter((review) => review.comment.trim());
+
+        if (isMounted && liveReviews && liveReviews.length > 0) {
+          setReviews(liveReviews);
+          setActiveIndex(0);
+        }
+      } catch (error) {
+        console.warn("Google reviews feed unavailable", error);
+      }
+    };
+
+    void loadReviews();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const visibleReviews = Array.from(
+    { length: Math.min(3, reviews.length) },
+    (_, offset) => reviews[(activeIndex + offset) % reviews.length]
+  );
+
+  const showPreviousReview = () => {
+    setActiveIndex((currentIndex) =>
+      currentIndex === 0 ? reviews.length - 1 : currentIndex - 1
+    );
+  };
+
+  const showNextReview = () => {
+    setActiveIndex((currentIndex) =>
+      currentIndex === reviews.length - 1 ? 0 : currentIndex + 1
+    );
+  };
+
+  return (
+    <div className="reviews-carousel" data-reveal>
+      <button
+        className="reviews-carousel__arrow reviews-carousel__arrow--prev"
+        type="button"
+        aria-label="Show previous reviews"
+        onClick={showPreviousReview}
+      >
+        <span aria-hidden="true" />
+      </button>
+
+      <div className="reviews-carousel__viewport" aria-live="polite">
+        {visibleReviews.map((review) => (
+          <article className="reviews-carousel__card" key={review.id}>
+            <div className="reviews-carousel__header">
+              {review.profilePhotoUrl ? (
+                <img
+                  className="reviews-carousel__avatar"
+                  src={review.profilePhotoUrl}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : (
+                <span className="reviews-carousel__avatar" aria-hidden="true">
+                  {review.authorName.trim().charAt(0).toUpperCase() || "G"}
+                </span>
+              )}
+              <div>
+                <h3>{review.authorName}</h3>
+                <p>{review.relativeTime}</p>
+              </div>
+            </div>
+
+            <p className="reviews-carousel__quote">{review.comment}</p>
+
+            <div className="reviews-carousel__footer">
+              <div
+                className="reviews-carousel__stars"
+                aria-label={`${review.rating} out of 5 stars`}
+              >
+                {starSlots.map((starValue) => (
+                  <span
+                    key={starValue}
+                    className={starValue <= review.rating ? "is-filled" : ""}
+                    aria-hidden="true"
+                  />
+                ))}
+              </div>
+              <a
+                className="reviews-carousel__google-mark"
+                href={googleReviewsUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open Rock Solid Leveling Google reviews"
+              >
+                G
+              </a>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <button
+        className="reviews-carousel__arrow reviews-carousel__arrow--next"
+        type="button"
+        aria-label="Show next reviews"
+        onClick={showNextReview}
+      >
+        <span aria-hidden="true" />
+      </button>
+
+      <div className="reviews-carousel__controls" aria-label="Google reviews carousel controls">
+        <div className="reviews-carousel__dots" role="tablist" aria-label="Review slides">
+          {reviews.map((review, index) => (
+            <button
+              key={review.id}
+              type="button"
+              role="tab"
+              aria-label={`Show reviews starting with ${review.authorName}`}
+              aria-selected={index === activeIndex}
+              className={index === activeIndex ? "is-active" : ""}
+              onClick={() => setActiveIndex(index)}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -612,14 +800,14 @@ function App() {
 
           <div className="hero__copy" data-reveal>
             <h1>
-              Don't Replace It
-              <span>Rock Solid It.</span>
+              Don&apos;t Replace it.
+              <span>Level it.</span>
+              <strong>With Rock Solid Results.</strong>
             </h1>
             <p className="hero__lede">
-              Omaha&apos;s proven concrete leveling experts. We lift, level, and
-              restore sunken concrete for a fraction of the cost of replacement
-              using grout pumping. Grout is stronger, fills voids, and helps
-              compact and settle soil.
+              We lift, level, and restore sunken concrete for a fraction of the
+              cost of replacement using grout pumping. Grout is stronger, fills
+              voids, and helps compact and settle soil.
             </p>
             <div className="hero__actions">
               <a className="button button--primary" href="#estimate">
@@ -702,12 +890,22 @@ function App() {
           </div>
         </section>
 
+        <section className="section reviews-section" id="reviews">
+          <div className="section-heading section-heading--center" data-reveal>
+            <h2>Customer Reviews</h2>
+            <p>
+              Read current Rock Solid Leveling feedback on Google.
+            </p>
+          </div>
+
+          <GoogleReviewsCarousel />
+        </section>
+
         <section className="section section--faq" id="faq">
           <div className="section-heading section-heading--center" data-reveal>
             <h2>Frequently Asked Questions</h2>
             <p>
-              Expert answers to common questions about grout-based concrete
-              leveling.
+              Answers to commonly asked questions.
             </p>
           </div>
 

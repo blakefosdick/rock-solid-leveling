@@ -22,9 +22,312 @@ export default {
       return handleQuoteSubmission(request, env);
     }
 
+    if (request.method === "GET" && url.pathname === "/google-reviews-config") {
+      return json({
+        success: true,
+        runtime: "worker",
+        hasGoogleClientId: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID),
+        hasGoogleClientSecret: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET),
+        hasGoogleRefreshToken: Boolean(env.GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN),
+        hasGoogleLocationName: Boolean(getConfiguredGoogleLocationName(env)),
+        hasGoogleAccountId: Boolean(env.GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID),
+        hasGoogleLocationId: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID),
+        canDiscoverGoogleAccount: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID)
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/google-reviews") {
+      return handleGoogleReviews(env);
+    }
+
     return env.ASSETS.fetch(request);
   }
 };
+
+const googleStarRatingValues = {
+  STAR_RATING_UNSPECIFIED: 0,
+  ONE: 1,
+  TWO: 2,
+  THREE: 3,
+  FOUR: 4,
+  FIVE: 5
+};
+
+async function handleGoogleReviews(env) {
+  const missingConfig = [
+    "GOOGLE_BUSINESS_PROFILE_CLIENT_ID",
+    "GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET",
+    "GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN"
+  ].filter((key) => !env[key]);
+
+  if (!getConfiguredGoogleLocationName(env) && !env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID) {
+    missingConfig.push("GOOGLE_BUSINESS_PROFILE_LOCATION_NAME or GOOGLE_BUSINESS_PROFILE_LOCATION_ID");
+  }
+
+  if (missingConfig.length > 0) {
+    return json(
+      {
+        success: false,
+        message: "Google reviews configuration is incomplete.",
+        detail: `Missing bindings/vars: ${missingConfig.join(", ")}`
+      },
+      500
+    );
+  }
+
+  try {
+    const accessToken = await getGoogleAccessToken(env);
+    const locationName = getConfiguredGoogleLocationName(env) || await discoverGoogleLocationName(env, accessToken);
+
+    if (!locationName) {
+      return json(
+        {
+          success: false,
+          message: "Google Business Profile location could not be resolved.",
+          detail: "The OAuth account can list accounts, but none of its locations matched GOOGLE_BUSINESS_PROFILE_LOCATION_ID."
+        },
+        404
+      );
+    }
+
+    const reviewsUrl = new URL(`https://mybusiness.googleapis.com/v4/${locationName}/reviews`);
+    reviewsUrl.searchParams.set("pageSize", "10");
+    reviewsUrl.searchParams.set("orderBy", "updateTime desc");
+
+    const reviewsResponse = await fetch(reviewsUrl.toString(), {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!reviewsResponse.ok) {
+      return json(
+        {
+          success: false,
+          message: "Google reviews request failed.",
+          detail: await reviewsResponse.text()
+        },
+        502
+      );
+    }
+
+    const payload = await reviewsResponse.json();
+    const reviews = Array.isArray(payload.reviews)
+      ? payload.reviews
+          .map(normalizeGoogleReview)
+          .filter((review) => review.comment)
+          .slice(0, 9)
+      : [];
+
+    return json(
+      {
+        success: true,
+        averageRating: Number(payload.averageRating || 0),
+        totalReviewCount: Number(payload.totalReviewCount || 0),
+        reviews
+      },
+      200,
+      {
+        "cache-control": "public, max-age=600, s-maxage=3600"
+      }
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return json({ success: false, message: "Unhandled Google reviews error.", detail }, 500);
+  }
+}
+
+async function getGoogleAccessToken(env) {
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID,
+      client_secret: env.GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET,
+      refresh_token: env.GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN,
+      grant_type: "refresh_token"
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    throw new Error(`Google token refresh failed: ${await tokenResponse.text()}`);
+  }
+
+  const tokenPayload = await tokenResponse.json();
+  if (!tokenPayload.access_token) {
+    throw new Error("Google token response did not include an access token.");
+  }
+
+  return tokenPayload.access_token;
+}
+
+function getConfiguredGoogleLocationName(env) {
+  const suppliedLocationName = String(env.GOOGLE_BUSINESS_PROFILE_LOCATION_NAME || "").trim();
+
+  if (suppliedLocationName) {
+    return suppliedLocationName.replace(/^\/+|\/+$/g, "");
+  }
+
+  const accountId = String(env.GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID || "").trim();
+  const locationId = String(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID || "").trim();
+
+  if (!accountId || !locationId) {
+    return "";
+  }
+
+  return `accounts/${accountId}/locations/${locationId}`;
+}
+
+async function discoverGoogleLocationName(env, accessToken) {
+  const targetLocationId = String(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID || "").trim();
+
+  if (!targetLocationId) {
+    return "";
+  }
+
+  const accounts = await listGoogleAccounts(accessToken);
+
+  for (const account of accounts) {
+    const accountName = String(account?.name || "").trim();
+    if (!accountName) {
+      continue;
+    }
+
+    const locations = await listGoogleLocations(accountName, accessToken);
+    const matchedLocation = locations.find((location) => {
+      const locationName = String(location?.name || "").trim();
+      return extractGoogleResourceId(locationName) === targetLocationId;
+    });
+
+    if (matchedLocation) {
+      return `${accountName}/locations/${targetLocationId}`;
+    }
+  }
+
+  return "";
+}
+
+async function listGoogleAccounts(accessToken) {
+  const accounts = [];
+  let pageToken = "";
+
+  do {
+    const accountsUrl = new URL("https://mybusinessaccountmanagement.googleapis.com/v1/accounts");
+    accountsUrl.searchParams.set("pageSize", "20");
+    if (pageToken) {
+      accountsUrl.searchParams.set("pageToken", pageToken);
+    }
+
+    const response = await fetch(accountsUrl.toString(), {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google accounts request failed: ${await response.text()}`);
+    }
+
+    const payload = await response.json();
+    accounts.push(...(Array.isArray(payload.accounts) ? payload.accounts : []));
+    pageToken = String(payload.nextPageToken || "");
+  } while (pageToken);
+
+  return accounts;
+}
+
+async function listGoogleLocations(accountName, accessToken) {
+  const locations = [];
+  let pageToken = "";
+
+  do {
+    const locationsUrl = new URL(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`);
+    locationsUrl.searchParams.set("pageSize", "100");
+    locationsUrl.searchParams.set("readMask", "name,title");
+    if (pageToken) {
+      locationsUrl.searchParams.set("pageToken", pageToken);
+    }
+
+    const response = await fetch(locationsUrl.toString(), {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google locations request failed for ${accountName}: ${await response.text()}`);
+    }
+
+    const payload = await response.json();
+    locations.push(...(Array.isArray(payload.locations) ? payload.locations : []));
+    pageToken = String(payload.nextPageToken || "");
+  } while (pageToken);
+
+  return locations;
+}
+
+function extractGoogleResourceId(resourceName) {
+  const segments = String(resourceName || "").split("/").filter(Boolean);
+  return segments[segments.length - 1] || "";
+}
+
+function normalizeGoogleReview(review) {
+  const authorName = String(review?.reviewer?.displayName || "Google reviewer").trim();
+  const comment = String(review?.comment || "").trim();
+  const rating = normalizeGoogleRating(review?.starRating);
+  const updateTime = String(review?.updateTime || review?.createTime || "");
+  const id = String(review?.reviewId || review?.name || `${authorName}-${updateTime}`).trim();
+
+  return {
+    id,
+    authorName,
+    relativeTime: formatRelativeTime(updateTime),
+    comment,
+    rating,
+    profilePhotoUrl: String(review?.reviewer?.profilePhotoUrl || "")
+  };
+}
+
+function normalizeGoogleRating(starRating) {
+  if (typeof starRating === "number") {
+    return Math.max(0, Math.min(5, Math.round(starRating)));
+  }
+
+  const normalized = googleStarRatingValues[String(starRating || "").toUpperCase()];
+  return normalized || 0;
+}
+
+function formatRelativeTime(value) {
+  const time = new Date(value).getTime();
+
+  if (!Number.isFinite(time)) {
+    return "Google review";
+  }
+
+  const seconds = Math.max(1, Math.floor((Date.now() - time) / 1000));
+  const units = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["week", 604800],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60]
+  ];
+
+  for (const [label, unitSeconds] of units) {
+    const count = Math.floor(seconds / unitSeconds);
+    if (count >= 1) {
+      return `${count} ${label}${count === 1 ? "" : "s"} ago`;
+    }
+  }
+
+  return "Just now";
+}
 
 async function handleQuoteSubmission(request, env) {
   try {
@@ -174,10 +477,10 @@ async function handleQuoteSubmission(request, env) {
   }
 }
 
-function json(body, status = 200) {
+function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 }
 
