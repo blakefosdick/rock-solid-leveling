@@ -5,6 +5,7 @@ import headerLogo from "../images/logos/TextandSlabsHorizontal.png";
 import footerLogo from "../images/logos/textandaddress.svg";
 import levelGraphic from "../images/logos/level.png";
 import processSlabGraphic from "../images/logos/slab.png";
+import { captureEvent, captureException } from "./analytics";
 import { contactDetails } from "./content";
 
 const beforeImage = "./media/before.jpg";
@@ -338,7 +339,12 @@ function FaqItem({
   const toggleItem = () => {
     const nextHeight = answerRef.current?.scrollHeight ?? 0;
     setAnswerHeight(nextHeight);
-    setIsOpen((currentValue) => !currentValue);
+    setIsOpen((currentValue) => {
+      if (!currentValue) {
+        captureEvent("faq_expanded", { question });
+      }
+      return !currentValue;
+    });
   };
 
   return (
@@ -386,6 +392,16 @@ function QuoteForm() {
   const fileHintId = useId();
   const statusMessageId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const hasStartedFormRef = useRef(false);
+
+  const trackFormStarted = () => {
+    if (hasStartedFormRef.current) {
+      return;
+    }
+
+    hasStartedFormRef.current = true;
+    captureEvent("quote_form_started");
+  };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -445,10 +461,17 @@ function QuoteForm() {
         fileInputRef.current.value = "";
       }
 
+      captureEvent("quote_form_submitted", {
+        has_images: images.length > 0,
+        image_count: images.length,
+        has_square_feet: squareFeet.trim().length > 0
+      });
       setStatusMessage("Thanks. Your estimate request was sent successfully.");
     } catch (error) {
       console.error("Quote webhook submission failed", error);
       const detail = error instanceof Error ? error.message : "Unknown error";
+      captureEvent("quote_form_submission_failed", { error_detail: detail });
+      captureException(error instanceof Error ? error : new Error(detail));
       if (detail.includes("status 404")) {
         setStatusMessage(
           "Submission endpoint not found (404). The Cloudflare function may not be deployed yet."
@@ -463,7 +486,7 @@ function QuoteForm() {
 
 
   return (
-    <form className="quote-form" onSubmit={onSubmit}>
+    <form className="quote-form" onFocusCapture={trackFormStarted} onSubmit={onSubmit}>
       <fieldset className="quote-form__fieldset" disabled={isSubmitting}>
         <div className="quote-form__grid">
           <label>
@@ -594,7 +617,11 @@ function App() {
             </ul>
           </nav>
 
-          <a className="site-header__cta button button--primary button--small" href="#estimate">
+          <a
+            className="site-header__cta button button--primary button--small"
+            href="#estimate"
+            onClick={() => captureEvent("cta_clicked", { label: "Get A Free Quote", location: "header" })}
+          >
             Get A Free Quote
           </a>
         </div>
@@ -622,10 +649,18 @@ function App() {
               compact and settle soil.
             </p>
             <div className="hero__actions">
-              <a className="button button--primary" href="#estimate">
+              <a
+                className="button button--primary"
+                href="#estimate"
+                onClick={() => captureEvent("cta_clicked", { label: "Get Your Free Estimate", location: "hero" })}
+              >
                 Get Your Free Estimate
               </a>
-              <a className="button button--secondary" href="#process">
+              <a
+                className="button button--secondary"
+                href="#process"
+                onClick={() => captureEvent("cta_clicked", { label: "See How It Works", location: "hero" })}
+              >
                 See How It Works
               </a>
             </div>
@@ -763,10 +798,20 @@ function App() {
             <ul>
               <li>{contactDetails.city}</li>
               <li>
-                <a href={contactDetails.phoneHref}>{contactDetails.phoneDisplay}</a>
+                <a
+                  href={contactDetails.phoneHref}
+                  onClick={() => captureEvent("phone_number_clicked", { location: "footer" })}
+                >
+                  {contactDetails.phoneDisplay}
+                </a>
               </li>
               <li>
-                <a href={contactDetails.emailHref}>{contactDetails.email}</a>
+                <a
+                  href={contactDetails.emailHref}
+                  onClick={() => captureEvent("email_clicked", { location: "footer" })}
+                >
+                  {contactDetails.email}
+                </a>
               </li>
             </ul>
           </div>
