@@ -88,6 +88,43 @@ Tip: After changing Cloudflare secrets/bindings, deploy again and check `/rock-s
 
 If you are deploying from Codex Cloud PR builds, create a new commit/PR update to trigger a fresh deploy whenever function or worker code changes.
 
+## Google reviews feed
+
+The reviews section is controlled by a runtime Worker var:
+
+- `GOOGLE_REVIEWS_ENABLED=false` hides the reviews section and its nav/footer links.
+- `GOOGLE_REVIEWS_ENABLED=true` shows the reviews section and loads the carousel.
+
+Keep this set to `false` until Google approves Business Profile API access. After approval, set it to `true`, run `npm run build`, and deploy with `npx wrangler deploy`.
+
+When enabled, the customer reviews carousel calls the Worker endpoint:
+
+- `GET /google-reviews`
+
+The Worker refreshes a Google OAuth access token server-side, calls the Google Business Profile reviews API, and returns normalized review JSON to the React carousel. If the endpoint is not configured yet, the carousel falls back to local placeholder cards and links to the live Google review profile.
+
+Required Google configuration:
+
+- `GOOGLE_REVIEWS_ENABLED` (var; set to `true` to display reviews)
+- `GOOGLE_BUSINESS_PROFILE_CLIENT_ID` (secret)
+- `GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET` (secret)
+- `GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN` (secret)
+- `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` (var; this can be the Business Profile ID shown in Google Business Profile settings)
+
+If you know the full location resource name, you can set this instead of relying on discovery:
+
+- `GOOGLE_BUSINESS_PROFILE_LOCATION_NAME` (var, format: `accounts/YOUR_ACCOUNT_ID/locations/YOUR_LOCATION_ID`)
+
+If only `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` is set, the Worker uses the OAuth token to list accessible Google Business Profile accounts and locations, then resolves the matching `accounts/.../locations/...` path automatically.
+
+The OAuth refresh token must be generated once with the Google account that owns or manages the Business Profile, using the `https://www.googleapis.com/auth/business.manage` scope.
+
+Useful diagnostic endpoint after deploy:
+
+- `GET /google-reviews-config`
+
+It returns booleans for required settings without exposing secret values.
+
 ## Production build
 
 ```bash
