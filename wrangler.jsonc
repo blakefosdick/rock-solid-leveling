@@ -6,7 +6,17 @@
     "directory": "./dist"
   },
   "vars": {
-    "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com"
+    "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com",
+    "GOOGLE_BUSINESS_PROFILE_LOCATION_ID": "6200519932882973401",
+    // Google reviews feed location. Use one of these patterns:
+    // "GOOGLE_BUSINESS_PROFILE_LOCATION_NAME": "accounts/YOUR_ACCOUNT_ID/locations/YOUR_LOCATION_ID"
+    // or:
+    // "GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID": "YOUR_ACCOUNT_ID",
+    // "GOOGLE_BUSINESS_PROFILE_LOCATION_ID": "YOUR_LOCATION_ID"
+    //
+    // Store GOOGLE_BUSINESS_PROFILE_CLIENT_ID,
+    // GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET, and
+    // GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN as Wrangler/Cloudflare secrets.
   },
   "send_email": [
     {
