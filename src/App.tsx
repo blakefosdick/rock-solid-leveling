@@ -100,6 +100,10 @@ const n8nWebhookUrl = "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
 const googleReviewsUrl = "https://maps.app.goo.gl/13pJzDvta4psNmd76?g_st=ac";
 
+type SiteConfig = {
+  showGoogleReviews?: boolean;
+};
+
 type GoogleReviewCard = {
   id: string;
   authorName: string;
@@ -150,6 +154,9 @@ const createSubmissionId = () => {
 
   return `rsl-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
+
+const getDefaultGoogleReviewsVisibility = () =>
+  String(import.meta.env.VITE_GOOGLE_REVIEWS_ENABLED ?? "").toLowerCase() === "true";
 
 const splitFullName = (fullName: string) => {
   const trimmedName = fullName.trim();
@@ -261,7 +268,7 @@ const buildWebhookPayload = ({
   return formData;
 };
 
-function useRevealAnimations() {
+function useRevealAnimations(refreshKey: unknown) {
   useEffect(() => {
     const elements = Array.from(
       document.querySelectorAll<HTMLElement>("[data-reveal]")
@@ -290,7 +297,44 @@ function useRevealAnimations() {
     elements.forEach((element) => observer.observe(element));
 
     return () => observer.disconnect();
+  }, [refreshKey]);
+}
+
+function useSiteConfig() {
+  const [showGoogleReviews, setShowGoogleReviews] = useState(
+    getDefaultGoogleReviewsVisibility
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSiteConfig = async () => {
+      try {
+        const response = await fetch("/site-config");
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as SiteConfig;
+
+        if (isMounted && typeof payload.showGoogleReviews === "boolean") {
+          setShowGoogleReviews(payload.showGoogleReviews);
+        }
+      } catch (error) {
+        console.warn("Site config unavailable", error);
+      }
+    };
+
+    void loadSiteConfig();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  return {
+    showGoogleReviews
+  };
 }
 
 function BeforeAfterSlider() {
@@ -785,7 +829,15 @@ function QuoteForm() {
 }
 
 function App() {
-  useRevealAnimations();
+  const { showGoogleReviews } = useSiteConfig();
+  const visibleNavLinks = showGoogleReviews
+    ? navLinks
+    : navLinks.filter((link) => link.href !== "#reviews");
+  const visibleFooterLinks = showGoogleReviews
+    ? footerLinks
+    : footerLinks.filter((link) => link.href !== "#reviews");
+
+  useRevealAnimations(showGoogleReviews);
 
   return (
     <div className="site-shell">
@@ -797,7 +849,7 @@ function App() {
 
           <nav className="site-nav" aria-label="Primary">
             <ul>
-              {navLinks.map((link) => (
+              {visibleNavLinks.map((link) => (
                 <li key={link.href}>
                   <a href={link.href}>{link.label}</a>
                 </li>
@@ -925,16 +977,18 @@ function App() {
           </div>
         </section>
 
-        <section className="section reviews-section" id="reviews">
-          <div className="section-heading section-heading--center" data-reveal>
-            <h2>Customer Reviews</h2>
-            <p>
-              Read current Rock Solid Leveling feedback on Google.
-            </p>
-          </div>
+        {showGoogleReviews ? (
+          <section className="section reviews-section" id="reviews">
+            <div className="section-heading section-heading--center" data-reveal>
+              <h2>Customer Reviews</h2>
+              <p>
+                Read current Rock Solid Leveling feedback on Google.
+              </p>
+            </div>
 
-          <GoogleReviewsCarousel />
-        </section>
+            <GoogleReviewsCarousel />
+          </section>
+        ) : null}
 
         <section className="section section--faq" id="faq">
           <div className="section-heading section-heading--center" data-reveal>
@@ -983,7 +1037,7 @@ function App() {
           <div className="site-footer__column">
             <h3>Quick Links</h3>
             <ul>
-              {footerLinks.map((link) => (
+              {visibleFooterLinks.map((link) => (
                 <li key={link.href}>
                   <a href={link.href}>{link.label}</a>
                 </li>

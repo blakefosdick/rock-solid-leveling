@@ -2,6 +2,18 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (request.method === "GET" && url.pathname === "/site-config") {
+      return json(
+        {
+          showGoogleReviews: isEnabled(env.GOOGLE_REVIEWS_ENABLED)
+        },
+        200,
+        {
+          "cache-control": "no-store"
+        }
+      );
+    }
+
     if (request.method === "GET" && url.pathname === "/rock-solid-website-quote-config") {
       return json({
         success: true,
@@ -43,6 +55,10 @@ export default {
     return env.ASSETS.fetch(request);
   }
 };
+
+function isEnabled(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
 
 const googleStarRatingValues = {
   STAR_RATING_UNSPECIFIED: 0,

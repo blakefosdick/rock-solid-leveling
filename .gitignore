@@ -26,6 +26,7 @@ build/
 .svelte-kit/
 .astro/
 .vercel/
+.wrangler/
 coverage/
 *.tsbuildinfo
 vite.config.js
@@ -34,6 +35,8 @@ stitch/
 stitch.zip
 images/*.zip
 images/source-assets/
+images/logos/*.pdf
+images/logos/*.penpot
 images/logos/levelandslabs.png
 images/logos/squareslabs.png
 

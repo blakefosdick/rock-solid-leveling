@@ -7,6 +7,7 @@
   },
   "vars": {
     "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com",
+    "GOOGLE_REVIEWS_ENABLED": "false",
     "GOOGLE_BUSINESS_PROFILE_LOCATION_ID": "6200519932882973401",
     // Google reviews feed location. Use one of these patterns:
     // "GOOGLE_BUSINESS_PROFILE_LOCATION_NAME": "accounts/YOUR_ACCOUNT_ID/locations/YOUR_LOCATION_ID"

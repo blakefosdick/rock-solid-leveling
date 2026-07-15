@@ -90,7 +90,14 @@ If you are deploying from Codex Cloud PR builds, create a new commit/PR update t
 
 ## Google reviews feed
 
-The customer reviews carousel calls the Worker endpoint:
+The reviews section is controlled by a runtime Worker var:
+
+- `GOOGLE_REVIEWS_ENABLED=false` hides the reviews section and its nav/footer links.
+- `GOOGLE_REVIEWS_ENABLED=true` shows the reviews section and loads the carousel.
+
+Keep this set to `false` until Google approves Business Profile API access. After approval, set it to `true`, run `npm run build`, and deploy with `npx wrangler deploy`.
+
+When enabled, the customer reviews carousel calls the Worker endpoint:
 
 - `GET /google-reviews`
 
@@ -98,6 +105,7 @@ The Worker refreshes a Google OAuth access token server-side, calls the Google B
 
 Required Google configuration:
 
+- `GOOGLE_REVIEWS_ENABLED` (var; set to `true` to display reviews)
 - `GOOGLE_BUSINESS_PROFILE_CLIENT_ID` (secret)
 - `GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET` (secret)
 - `GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN` (secret)
