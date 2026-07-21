@@ -70,8 +70,9 @@ It replicates the n8n flow by:
 
 1. Parsing the website `multipart/form-data` payload.
 2. Uploading any `images` files to an R2 bucket with dated object keys.
-3. Building public image URLs using `IMAGE_PUBLIC_BASE_URL`.
-4. Upserting the contact to HighLevel (`/contacts/upsert`) with your tags + custom fields.
+3. Upserting the contact to HighLevel (`/contacts/upsert`) with your tags + non-file custom fields.
+4. Uploading all image files to the HighLevel file custom-field endpoint and then updating the contact's image field with HighLevel's structured file value.
+5. Serving any fallback R2 image links through `/quote-images/<object-key>` so links do not depend on public bucket access.
 
 Required Cloudflare bindings/secrets for the function:
 
@@ -82,7 +83,7 @@ Required Cloudflare bindings/secrets for the function:
 - `HIGHLEVEL_SLABS_FIELD_ID`
 - `HIGHLEVEL_IMAGES_FIELD_ID`
 - `HIGHLEVEL_NOTES_FIELD_ID`
-- `IMAGE_PUBLIC_BASE_URL` (example: `https://images.rocksolidleveling.com`)
+- `IMAGE_PUBLIC_BASE_URL` (optional; leave unset to use same-origin `/quote-images/...` Worker URLs)
 - `QUOTE_NOTIFICATION_EMAILS` (comma-separated notification recipients; defaults to `blake@rocksolidleveling.com`)
 
 To route the website form to this function, set:

@@ -43,6 +43,14 @@ type ContactPayload = {
   imageUrlsText: string;
 };
 
+type GhlJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | GhlJsonValue[]
+  | { [key: string]: GhlJsonValue };
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -88,14 +96,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     slabsFieldId: env.HIGHLEVEL_SLABS_FIELD_ID || "5pX0DhPVGkwPQ4sAoIjz",
     imagesFieldId: env.HIGHLEVEL_IMAGES_FIELD_ID || "XGPeq5EV1xvOP9fRPsNt",
     notesFieldId: env.HIGHLEVEL_NOTES_FIELD_ID || "wIkVaPWQuiJJjcxbci49",
-    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || "https://images.rocksolidleveling.com"
+    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || ""
   };
 
   const missingConfig = [
     "QUOTE_IMAGES_BUCKET",
     "HIGHLEVEL_API_TOKEN",
     "QUOTE_NOTIFICATION_EMAIL"
-  ].filter((key) => !(env as Record<string, unknown>)[key]);
+  ].filter((key) => !(env as unknown as Record<string, unknown>)[key]);
 
   const notificationRecipients = parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS);
   if (notificationRecipients.length === 0) {
@@ -135,6 +143,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const imageFiles = form.getAll("images").filter((f): f is File => f instanceof File);
   const uploadedUrls: string[] = [];
+  const highLevelImageFiles: File[] = [];
 
   for (let index = 0; index < imageFiles.length; index += 1) {
     const file = imageFiles[index];
@@ -144,14 +153,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const baseName = extension ? originalName.slice(0, -extension.length) : originalName;
     const safeFileName = `${String(index + 1).padStart(2, "0")}-${slugify(baseName, `upload-${index + 1}`)}${extension}`;
     const objectKey = `website-quotes/${datePath}/${submissionSlug}/${safeFileName}`;
+    const bytes = await file.arrayBuffer();
+    const contentType = file.type || "application/octet-stream";
 
-    await env.QUOTE_IMAGES_BUCKET.put(objectKey, await file.arrayBuffer(), {
+    await env.QUOTE_IMAGES_BUCKET.put(objectKey, bytes, {
       httpMetadata: {
-        contentType: file.type || "application/octet-stream"
+        contentType
       }
     });
 
-    uploadedUrls.push(`${config.imagePublicBaseUrl.replace(/\/$/, "")}/${objectKey}`);
+    uploadedUrls.push(buildQuoteImageUrl(request, objectKey, config.imagePublicBaseUrl));
+    highLevelImageFiles.push(new File([bytes], safeFileName, { type: contentType }));
   }
 
   const contact: ContactPayload = {
@@ -185,7 +197,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     tags: ["website quote form"],
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: contact.squareFeetOfSlabs },
-      { id: config.imagesFieldId, key: "Images of Concrete", field_value: contact.imageUrlsText },
       { id: config.notesFieldId, key: "Notes", field_value: contact.notes }
     ]
   };
@@ -209,7 +220,40 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const upsertResult = await upsertResponse.json().catch(() => null) as {
     contact?: { id?: string; locationId?: string };
   } | null;
-  const contactId = String(upsertResult?.contact?.id || "").trim();
+  const contactId = extractHighLevelContactId(upsertResult);
+
+  if (!contactId) {
+    return json({ success: false, message: "HighLevel upsert succeeded, but no contact id was returned." }, 502);
+  }
+
+  if (highLevelImageFiles.length > 0) {
+    const uploadedFileValue = await uploadFilesToHighLevelCustomField(config, env.HIGHLEVEL_API_TOKEN, highLevelImageFiles);
+
+    if (uploadedFileValue) {
+      await updateHighLevelContactCustomFields(config, env.HIGHLEVEL_API_TOKEN, contactId, [
+        {
+          id: config.imagesFieldId,
+          value: uploadedFileValue
+        }
+      ]);
+
+      const refreshedContact = await getHighLevelContact(config, env.HIGHLEVEL_API_TOKEN, contactId);
+      const normalizedImageValue = normalizeUploadedFileFieldValue(
+        config.imagesFieldId,
+        extractHighLevelCustomFieldValue(refreshedContact, config.imagesFieldId) ?? uploadedFileValue
+      );
+
+      if (normalizedImageValue) {
+        await updateHighLevelContactCustomFields(config, env.HIGHLEVEL_API_TOKEN, contactId, [
+          {
+            id: config.imagesFieldId,
+            value: normalizedImageValue
+          }
+        ]);
+      }
+    }
+  }
+
   const contactLocationId = String(upsertResult?.contact?.locationId || config.locationId).trim();
   const contactUrl = contactId && contactLocationId
     ? `https://app.gohighlevel.com/v2/location/${encodeURIComponent(contactLocationId)}/contacts/detail/${encodeURIComponent(contactId)}`
@@ -240,6 +284,316 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const detail = error instanceof Error ? error.message : String(error);
     return json({ success: false, message: "Unhandled function error.", detail }, 500);
   }
+};
+
+const buildQuoteImageUrl = (request: Request, objectKey: string, imagePublicBaseUrl: string) => {
+  const configuredBaseUrl = String(imagePublicBaseUrl || "").trim();
+
+  if (configuredBaseUrl) {
+    return `${configuredBaseUrl.replace(/\/$/, "")}/${encodePathSegments(objectKey)}`;
+  }
+
+  const url = new URL(request.url);
+  url.pathname = `/quote-images/${encodePathSegments(objectKey)}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+};
+
+const encodePathSegments = (value: string) =>
+  value
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+const buildHighLevelHeaders = (token: string, contentType?: string) => {
+  const headers = new Headers({
+    Accept: "application/json",
+    Version: "2021-07-28",
+    Authorization: `Bearer ${token}`
+  });
+
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  return headers;
+};
+
+const readHighLevelError = async (response: Response) => {
+  const payload = (await response.clone().json().catch(() => null)) as {
+    message?: unknown;
+    error?: unknown;
+  } | null;
+
+  if (Array.isArray(payload?.message)) {
+    return payload.message.map((item) => String(item)).join("; ");
+  }
+
+  if (typeof payload?.message === "string" && payload.message.trim()) {
+    return payload.message;
+  }
+
+  if (typeof payload?.error === "string" && payload.error.trim()) {
+    return payload.error;
+  }
+
+  return (await response.text().catch(() => "")) || `HighLevel returned HTTP ${String(response.status)}.`;
+};
+
+const requestHighLevelJson = async (
+  token: string,
+  method: string,
+  path: string,
+  body?: Record<string, unknown>
+) => {
+  const response = await fetch(`https://services.leadconnectorhq.com${path}`, {
+    method,
+    headers: buildHighLevelHeaders(token, body ? "application/json" : undefined),
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(`HighLevel request failed: ${await readHighLevelError(response)}`);
+  }
+
+  return (await response.json().catch(() => ({}))) as Record<string, unknown>;
+};
+
+const requestHighLevelForm = async (token: string, path: string, formData: FormData) => {
+  const response = await fetch(`https://services.leadconnectorhq.com${path}`, {
+    method: "POST",
+    headers: buildHighLevelHeaders(token),
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(`HighLevel file upload failed: ${await readHighLevelError(response)}`);
+  }
+
+  return (await response.json().catch(() => ({}))) as Record<string, unknown>;
+};
+
+const uploadFilesToHighLevelCustomField = async (
+  config: { locationId: string; imagesFieldId: string },
+  token: string,
+  files: File[]
+): Promise<GhlJsonValue | null> => {
+  if (files.length === 0) {
+    return null;
+  }
+
+  const formData = new FormData();
+  formData.set("id", config.imagesFieldId);
+  formData.set("maxFiles", String(files.length));
+
+  for (const file of files) {
+    formData.append(config.imagesFieldId, file, file.name);
+  }
+
+  const payload = await requestHighLevelForm(
+    token,
+    `/locations/${encodeURIComponent(config.locationId)}/customFields/upload`,
+    formData
+  );
+
+  return extractUploadedFileFieldValue(payload, config.imagesFieldId, files);
+};
+
+const extractUploadedFileFieldValue = (
+  payload: Record<string, unknown>,
+  fieldId: string,
+  files: File[]
+): GhlJsonValue | null => {
+  if (isUploadedFileMetaArray(payload.meta)) {
+    return payload.meta;
+  }
+
+  const uploadedUrlsFromMap: Record<string, unknown> | null =
+    payload.uploadedFiles && typeof payload.uploadedFiles === "object" && !Array.isArray(payload.uploadedFiles)
+      ? payload.uploadedFiles as Record<string, unknown>
+      : null;
+
+  if (uploadedUrlsFromMap) {
+    const uploadedMeta: Array<Record<string, GhlJsonValue>> = [];
+
+    for (const file of files) {
+      const url = uploadedUrlsFromMap[file.name];
+
+      if (typeof url !== "string" || !url.trim()) {
+        continue;
+      }
+
+      uploadedMeta.push({
+        fieldname: fieldId,
+        originalname: file.name,
+        mimetype: file.type || "application/octet-stream",
+        size: file.size,
+        url
+      });
+    }
+
+    const matchedUrls = new Set(uploadedMeta.map((item) => item.url));
+    const extraUploadedMeta = Object.entries(uploadedUrlsFromMap)
+      .filter(([, value]) => typeof value === "string" && value.trim() && !matchedUrls.has(value))
+      .map(([fileName, url]) => ({
+        fieldname: fieldId,
+        originalname: fileName,
+        mimetype: "application/octet-stream",
+        size: 0,
+        url: url as string
+      }));
+    const combinedMeta = [...uploadedMeta, ...extraUploadedMeta];
+
+    if (combinedMeta.length > 0) {
+      return combinedMeta;
+    }
+  }
+
+  const uploadedUrls =
+    payload.uploadedFiles && typeof payload.uploadedFiles === "object" && !Array.isArray(payload.uploadedFiles)
+      ? Object.values(payload.uploadedFiles).filter((value): value is string => typeof value === "string" && Boolean(value))
+      : [];
+
+  if (uploadedUrls.length > 0) {
+    return uploadedUrls;
+  }
+
+  for (const key of ["value", "data", "files"]) {
+    const value = payload[key];
+
+    if (isUploadedFileValueRecord(value)) {
+      return value as GhlJsonValue;
+    }
+  }
+
+  return isUploadedFileValueRecord(payload) ? payload as GhlJsonValue : null;
+};
+
+const updateHighLevelContactCustomFields = async (
+  _config: { locationId: string },
+  token: string,
+  contactId: string,
+  customFields: Array<{ id: string; value: GhlJsonValue }>
+) => {
+  if (customFields.length === 0) {
+    return;
+  }
+
+  await requestHighLevelJson(token, "PUT", `/contacts/${encodeURIComponent(contactId)}`, {
+    customFields
+  });
+};
+
+const getHighLevelContact = async (_config: { locationId: string }, token: string, contactId: string) =>
+  requestHighLevelJson(token, "GET", `/contacts/${encodeURIComponent(contactId)}`);
+
+const extractHighLevelContactId = (payload: unknown) =>
+  readStringPath(payload, ["contact", "id"]) ||
+  readStringPath(payload, ["contact", "_id"]) ||
+  readStringPath(payload, ["contactId"]) ||
+  readStringPath(payload, ["id"]) ||
+  readStringPath(payload, ["_id"]) ||
+  "";
+
+const extractHighLevelCustomFieldValue = (payload: unknown, fieldId: string) => {
+  const contactRecord =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as { contact?: unknown }).contact && typeof (payload as { contact?: unknown }).contact === "object"
+        ? (payload as { contact: Record<string, unknown> }).contact
+        : payload as Record<string, unknown>
+      : null;
+  const customFields = Array.isArray(contactRecord?.customFields)
+    ? contactRecord.customFields as Array<{ id?: string; value?: unknown }>
+    : [];
+
+  return customFields.find((field) => field.id === fieldId)?.value;
+};
+
+const normalizeUploadedFileFieldValue = (
+  fieldId: string,
+  value: unknown
+): Record<string, { meta: Record<string, GhlJsonValue>; url: string | null; documentId: string | null }> | null => {
+  const entries = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && !Array.isArray(value)
+      ? Object.values(value)
+      : [];
+  const normalized: Record<string, { meta: Record<string, GhlJsonValue>; url: string | null; documentId: string | null }> = {};
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+
+    const entryRecord = entry as Record<string, unknown>;
+    const url = typeof entryRecord.url === "string" && entryRecord.url.trim() ? entryRecord.url : null;
+    const documentId = typeof entryRecord.documentId === "string" && entryRecord.documentId.trim() ? entryRecord.documentId : null;
+    const metaSource =
+      entryRecord.meta && typeof entryRecord.meta === "object" && !Array.isArray(entryRecord.meta)
+        ? entryRecord.meta as Record<string, unknown>
+        : entryRecord;
+    const meta: Record<string, GhlJsonValue> = {};
+
+    for (const [key, item] of Object.entries(metaSource)) {
+      if (["url", "documentId", "meta"].includes(key)) {
+        continue;
+      }
+
+      if (item === null || ["string", "number", "boolean"].includes(typeof item)) {
+        meta[key] = item as GhlJsonValue;
+      }
+    }
+
+    if (!meta.fieldname) {
+      meta.fieldname = fieldId;
+    }
+
+    normalized[crypto.randomUUID()] = {
+      url,
+      documentId,
+      meta
+    };
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+};
+
+const isUploadedFileValueRecord = (value: unknown): value is Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.values(value).some((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return false;
+    }
+
+    const candidate = item as Record<string, unknown>;
+    return (
+      typeof candidate.url === "string" ||
+      typeof candidate.documentId === "string" ||
+      (candidate.meta !== undefined && typeof candidate.meta === "object")
+    );
+  });
+};
+
+const isUploadedFileMetaArray = (value: unknown): value is Array<Record<string, GhlJsonValue>> =>
+  Array.isArray(value) &&
+  value.every((item) => item && typeof item === "object" && !Array.isArray(item) && typeof (item as { url?: unknown }).url === "string");
+
+const readStringPath = (value: unknown, path: string[]) => {
+  let current = value;
+
+  for (const segment of path) {
+    if (!current || typeof current !== "object") {
+      return "";
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return typeof current === "string" && current.trim() ? current : "";
 };
 
 const buildNotificationHtml = ({
