@@ -30,6 +30,10 @@ export default {
       });
     }
 
+    if (request.method === "GET" && url.pathname.startsWith("/quote-images/")) {
+      return handleQuoteImageRequest(request, env);
+    }
+
     if (request.method === "POST" && url.pathname === "/rock-solid-website-quote") {
       return handleQuoteSubmission(request, env);
     }
@@ -357,7 +361,7 @@ async function handleQuoteSubmission(request, env) {
     slabsFieldId: env.HIGHLEVEL_SLABS_FIELD_ID || "5pX0DhPVGkwPQ4sAoIjz",
     imagesFieldId: env.HIGHLEVEL_IMAGES_FIELD_ID || "XGPeq5EV1xvOP9fRPsNt",
     notesFieldId: env.HIGHLEVEL_NOTES_FIELD_ID || "wIkVaPWQuiJJjcxbci49",
-    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || "https://images.rocksolidleveling.com"
+    imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || ""
   };
 
   const missingConfig = [
@@ -406,6 +410,7 @@ async function handleQuoteSubmission(request, env) {
 
   const imageFiles = form.getAll("images").filter((f) => f instanceof File);
   const uploadedUrls = [];
+  const highLevelImageFiles = [];
 
   for (let index = 0; index < imageFiles.length; index += 1) {
     const file = imageFiles[index];
@@ -415,14 +420,17 @@ async function handleQuoteSubmission(request, env) {
     const baseName = extension ? originalName.slice(0, -extension.length) : originalName;
     const safeFileName = `${String(index + 1).padStart(2, "0")}-${slugify(baseName, `upload-${index + 1}`)}${extension}`;
     const objectKey = `website-quotes/${datePath}/${submissionSlug}/${safeFileName}`;
+    const bytes = await file.arrayBuffer();
+    const contentType = file.type || "application/octet-stream";
 
-    await env.QUOTE_IMAGES_BUCKET.put(objectKey, await file.arrayBuffer(), {
+    await env.QUOTE_IMAGES_BUCKET.put(objectKey, bytes, {
       httpMetadata: {
-        contentType: file.type || "application/octet-stream"
+        contentType
       }
     });
 
-    uploadedUrls.push(`${String(config.imagePublicBaseUrl).replace(/\/$/, "")}/${objectKey}`);
+    uploadedUrls.push(buildQuoteImageUrl(request, objectKey, config.imagePublicBaseUrl));
+    highLevelImageFiles.push(new File([bytes], safeFileName, { type: contentType }));
   }
 
   const highLevelPayload = {
@@ -439,7 +447,6 @@ async function handleQuoteSubmission(request, env) {
     tags: ["website quote form"],
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: String(form.get("squareFeet") || raw?.q13_number || "").trim() },
-      { id: config.imagesFieldId, key: "Images of Concrete", field_value: uploadedUrls.join("\n") },
       { id: config.notesFieldId, key: "Notes", field_value: String(form.get("details") || raw?.q17_anyNotes || "").trim() }
     ]
   };
@@ -460,7 +467,40 @@ async function handleQuoteSubmission(request, env) {
   }
 
   const upsertResult = await upsertResponse.json().catch(() => null);
-  const contactId = String(upsertResult?.contact?.id || "").trim();
+  const contactId = extractHighLevelContactId(upsertResult);
+
+  if (!contactId) {
+    return json({ success: false, message: "HighLevel upsert succeeded, but no contact id was returned." }, 502);
+  }
+
+  if (highLevelImageFiles.length > 0) {
+    const uploadedFileValue = await uploadFilesToHighLevelCustomField(config, env.HIGHLEVEL_API_TOKEN, highLevelImageFiles);
+
+    if (uploadedFileValue) {
+      await updateHighLevelContactCustomFields(config, env.HIGHLEVEL_API_TOKEN, contactId, [
+        {
+          id: config.imagesFieldId,
+          value: uploadedFileValue
+        }
+      ]);
+
+      const refreshedContact = await getHighLevelContact(config, env.HIGHLEVEL_API_TOKEN, contactId);
+      const normalizedImageValue = normalizeUploadedFileFieldValue(
+        config.imagesFieldId,
+        extractHighLevelCustomFieldValue(refreshedContact, config.imagesFieldId) ?? uploadedFileValue
+      );
+
+      if (normalizedImageValue) {
+        await updateHighLevelContactCustomFields(config, env.HIGHLEVEL_API_TOKEN, contactId, [
+          {
+            id: config.imagesFieldId,
+            value: normalizedImageValue
+          }
+        ]);
+      }
+    }
+  }
+
   const contactLocationId = String(upsertResult?.contact?.locationId || config.locationId).trim();
   const contactUrl = contactId && contactLocationId
     ? `https://app.gohighlevel.com/v2/location/${encodeURIComponent(contactLocationId)}/contacts/detail/${encodeURIComponent(contactId)}`
@@ -498,6 +538,330 @@ function json(body, status = 200, headers = {}) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
+}
+
+async function handleQuoteImageRequest(request, env) {
+  if (!env.QUOTE_IMAGES_BUCKET) {
+    return new Response("Quote image storage is not configured.", { status: 500 });
+  }
+
+  const url = new URL(request.url);
+  const rawKey = url.pathname.slice("/quote-images/".length);
+  const objectKey = decodeURIComponent(rawKey);
+
+  if (!objectKey || objectKey.includes("..")) {
+    return new Response("Image not found.", { status: 404 });
+  }
+
+  const object = await env.QUOTE_IMAGES_BUCKET.get(objectKey);
+
+  if (!object || !object.body) {
+    return new Response("Image not found.", { status: 404 });
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata?.(headers);
+
+  if (object.httpEtag) {
+    headers.set("etag", object.httpEtag);
+  }
+
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/octet-stream");
+  }
+
+  return new Response(object.body, { headers });
+}
+
+function buildQuoteImageUrl(request, objectKey, imagePublicBaseUrl) {
+  const configuredBaseUrl = String(imagePublicBaseUrl || "").trim();
+
+  if (configuredBaseUrl) {
+    return `${configuredBaseUrl.replace(/\/$/, "")}/${encodePathSegments(objectKey)}`;
+  }
+
+  const url = new URL(request.url);
+  url.pathname = `/quote-images/${encodePathSegments(objectKey)}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function encodePathSegments(value) {
+  return String(value)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function buildHighLevelHeaders(token, contentType) {
+  const headers = new Headers({
+    Accept: "application/json",
+    Version: "2021-07-28",
+    Authorization: `Bearer ${token}`
+  });
+
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  return headers;
+}
+
+async function readHighLevelError(response) {
+  const payload = await response.clone().json().catch(() => null);
+
+  if (Array.isArray(payload?.message)) {
+    return payload.message.map((item) => String(item)).join("; ");
+  }
+
+  if (typeof payload?.message === "string" && payload.message.trim()) {
+    return payload.message;
+  }
+
+  if (typeof payload?.error === "string" && payload.error.trim()) {
+    return payload.error;
+  }
+
+  return await response.text().catch(() => "") || `HighLevel returned HTTP ${response.status}.`;
+}
+
+async function requestHighLevelJson(config, token, method, path, body) {
+  const response = await fetch(`https://services.leadconnectorhq.com${path}`, {
+    method,
+    headers: buildHighLevelHeaders(token, body ? "application/json" : undefined),
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(`HighLevel request failed: ${await readHighLevelError(response)}`);
+  }
+
+  return await response.json().catch(() => ({}));
+}
+
+async function requestHighLevelForm(config, token, path, formData) {
+  const response = await fetch(`https://services.leadconnectorhq.com${path}`, {
+    method: "POST",
+    headers: buildHighLevelHeaders(token),
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(`HighLevel file upload failed: ${await readHighLevelError(response)}`);
+  }
+
+  return await response.json().catch(() => ({}));
+}
+
+async function uploadFilesToHighLevelCustomField(config, token, files) {
+  if (files.length === 0) {
+    return null;
+  }
+
+  const formData = new FormData();
+  formData.set("id", config.imagesFieldId);
+  formData.set("maxFiles", String(files.length));
+
+  for (const file of files) {
+    formData.append(config.imagesFieldId, file, file.name);
+  }
+
+  const payload = await requestHighLevelForm(
+    config,
+    token,
+    `/locations/${encodeURIComponent(config.locationId)}/customFields/upload`,
+    formData
+  );
+
+  return extractUploadedFileFieldValue(payload, config.imagesFieldId, files);
+}
+
+function extractUploadedFileFieldValue(payload, fieldId, files) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  if (isUploadedFileMetaArray(payload.meta)) {
+    return payload.meta;
+  }
+
+  const uploadedUrlsFromMap =
+    payload.uploadedFiles && typeof payload.uploadedFiles === "object" && !Array.isArray(payload.uploadedFiles)
+      ? payload.uploadedFiles
+      : null;
+
+  if (uploadedUrlsFromMap) {
+    const uploadedMeta = files
+      .map((file) => {
+        const url = uploadedUrlsFromMap[file.name];
+
+        if (typeof url !== "string" || !url.trim()) {
+          return null;
+        }
+
+        return {
+          fieldname: fieldId,
+          originalname: file.name,
+          mimetype: file.type || "application/octet-stream",
+          size: file.size,
+          url
+        };
+      })
+      .filter(Boolean);
+    const matchedUrls = new Set(uploadedMeta.map((item) => item.url));
+    const extraUploadedMeta = Object.entries(uploadedUrlsFromMap)
+      .filter(([, value]) => typeof value === "string" && value.trim() && !matchedUrls.has(value))
+      .map(([fileName, url]) => ({
+        fieldname: fieldId,
+        originalname: fileName,
+        mimetype: "application/octet-stream",
+        size: 0,
+        url
+      }));
+    const combinedMeta = [...uploadedMeta, ...extraUploadedMeta];
+
+    if (combinedMeta.length > 0) {
+      return combinedMeta;
+    }
+  }
+
+  const uploadedUrls =
+    payload.uploadedFiles && typeof payload.uploadedFiles === "object" && !Array.isArray(payload.uploadedFiles)
+      ? Object.values(payload.uploadedFiles).filter((value) => typeof value === "string" && Boolean(value))
+      : [];
+
+  if (uploadedUrls.length > 0) {
+    return uploadedUrls;
+  }
+
+  for (const key of ["value", "data", "files"]) {
+    if (isUploadedFileValueRecord(payload[key])) {
+      return payload[key];
+    }
+  }
+
+  return isUploadedFileValueRecord(payload) ? payload : null;
+}
+
+async function updateHighLevelContactCustomFields(config, token, contactId, customFields) {
+  if (customFields.length === 0) {
+    return;
+  }
+
+  await requestHighLevelJson(config, token, "PUT", `/contacts/${encodeURIComponent(contactId)}`, {
+    customFields
+  });
+}
+
+async function getHighLevelContact(config, token, contactId) {
+  return requestHighLevelJson(config, token, "GET", `/contacts/${encodeURIComponent(contactId)}`);
+}
+
+function extractHighLevelContactId(payload) {
+  return (
+    readStringPath(payload, ["contact", "id"]) ||
+    readStringPath(payload, ["contact", "_id"]) ||
+    readStringPath(payload, ["contactId"]) ||
+    readStringPath(payload, ["id"]) ||
+    readStringPath(payload, ["_id"]) ||
+    ""
+  );
+}
+
+function extractHighLevelCustomFieldValue(payload, fieldId) {
+  const contactRecord =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload.contact && typeof payload.contact === "object"
+        ? payload.contact
+        : payload
+      : null;
+  const customFields = Array.isArray(contactRecord?.customFields) ? contactRecord.customFields : [];
+
+  return customFields.find((field) => field?.id === fieldId)?.value;
+}
+
+function normalizeUploadedFileFieldValue(fieldId, value) {
+  const entries = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && !Array.isArray(value)
+      ? Object.values(value)
+      : [];
+  const normalized = {};
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+
+    const url = typeof entry.url === "string" && entry.url.trim() ? entry.url : null;
+    const documentId = typeof entry.documentId === "string" && entry.documentId.trim() ? entry.documentId : null;
+    const metaSource = entry.meta && typeof entry.meta === "object" && !Array.isArray(entry.meta) ? entry.meta : entry;
+    const meta = {};
+
+    for (const [key, item] of Object.entries(metaSource)) {
+      if (["url", "documentId", "meta"].includes(key)) {
+        continue;
+      }
+
+      if (item === null || ["string", "number", "boolean"].includes(typeof item)) {
+        meta[key] = item;
+      }
+    }
+
+    if (!meta.fieldname) {
+      meta.fieldname = fieldId;
+    }
+
+    normalized[crypto.randomUUID()] = {
+      url,
+      documentId,
+      meta
+    };
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function isUploadedFileValueRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.values(value).some((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return false;
+    }
+
+    return (
+      typeof item.url === "string" ||
+      typeof item.documentId === "string" ||
+      (item.meta !== undefined && typeof item.meta === "object")
+    );
+  });
+}
+
+function isUploadedFileMetaArray(value) {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => item && typeof item === "object" && !Array.isArray(item) && typeof item.url === "string")
+  );
+}
+
+function readStringPath(value, path) {
+  let current = value;
+
+  for (const segment of path) {
+    if (!current || typeof current !== "object") {
+      return "";
+    }
+
+    current = current[segment];
+  }
+
+  return typeof current === "string" && current.trim() ? current : "";
 }
 
 function splitFullName(value) {
