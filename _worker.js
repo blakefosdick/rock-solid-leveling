@@ -743,7 +743,7 @@ function extractUploadedFileFieldValue(payload, fieldId, files) {
   }
 
   const uploadedUrls =
-    payload.uploadedFiles && typeof payload === "object" && !Array.isArray(payload.uploadedFiles)
+    payload.uploadedFiles && typeof payload.uploadedFiles === "object" && !Array.isArray(payload.uploadedFiles)
       ? Object.values(payload.uploadedFiles).filter((value) => typeof value === "string" && Boolean(value))
       : [];
 
@@ -932,6 +932,6 @@ function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('\"', "&quot;")
+    .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
