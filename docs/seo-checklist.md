@@ -3,16 +3,16 @@
 This checklist tracks implementation work to improve organic visibility for `rocksolidleveling.com`.
 
 ## Notes
-- Current sitemap includes `#fragment` URLs (for example `/#faq`). Search engines generally index the base URL, not fragment destinations, so these should be replaced with real crawlable page URLs as dedicated pages are added.
+- Previous sitemap entries included `#fragment` URLs (for example `/#faq`). Search engines generally index the base URL, not fragment destinations, so future section-level SEO targets should use real crawlable page URLs.
 
 ---
 
 ## Phase 1 — Foundation fixes (High Priority)
 
 - [x] Correct JSON-LD business email to `info@rocksolidleveling.com`.
-- [ ] Remove fragment URLs from `public/sitemap.xml` after dedicated pages are live.
-- [ ] Add `<lastmod>` to sitemap URLs and keep it current.
-- [ ] Ensure canonical tags are present and correct on all indexable pages.
+- [x] Remove fragment URLs from `public/sitemap.xml` after dedicated pages are live.
+- [x] Add `<lastmod>` to sitemap URLs and keep it current.
+- [x] Ensure canonical tags are present and correct on all indexable pages.
 - [ ] Submit updated sitemap in Google Search Console and Bing Webmaster Tools.
 
 ### Definition of done
