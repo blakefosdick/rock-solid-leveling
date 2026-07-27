@@ -1,62 +1,71 @@
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
 
-    if (request.method === "GET" && url.pathname === "/site-config") {
-      return json(
-        {
-          showGoogleReviews: isEnabled(env.GOOGLE_REVIEWS_ENABLED)
-        },
-        200,
-        {
-          "cache-control": "no-store"
-        }
-      );
+      if (request.method === "GET" && url.pathname === "/site-config") {
+        return json(
+          {
+            showGoogleReviews: isEnabled(env.GOOGLE_REVIEWS_ENABLED)
+          },
+          200,
+          {
+            "cache-control": "no-store"
+          }
+        );
+      }
+
+      if (request.method === "GET" && url.pathname === "/rock-solid-website-quote-config") {
+        return json({
+          success: true,
+          runtime: "worker",
+          hasAssetsBinding: Boolean(env?.ASSETS?.fetch),
+          hasQuoteImagesBucket: Boolean(env.QUOTE_IMAGES_BUCKET),
+          hasHighLevelApiToken: Boolean(env.HIGHLEVEL_API_TOKEN),
+          hasLocationId: Boolean(env.HIGHLEVEL_LOCATION_ID),
+          hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
+          hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
+          hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
+          hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
+          hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
+          hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
+        });
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/quote-images/")) {
+        return await handleQuoteImageRequest(request, env);
+      }
+
+      if (request.method === "POST" && url.pathname === "/rock-solid-website-quote") {
+        return await handleQuoteSubmission(request, env);
+      }
+
+      if (request.method === "GET" && url.pathname === "/google-reviews-config") {
+        return json({
+          success: true,
+          runtime: "worker",
+          hasGoogleClientId: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID),
+          hasGoogleClientSecret: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET),
+          hasGoogleRefreshToken: Boolean(env.GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN),
+          hasGoogleLocationName: Boolean(getConfiguredGoogleLocationName(env)),
+          hasGoogleAccountId: Boolean(env.GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID),
+          hasGoogleLocationId: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID),
+          canDiscoverGoogleAccount: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID)
+        });
+      }
+
+      if (request.method === "GET" && url.pathname === "/google-reviews") {
+        return await handleGoogleReviews(env);
+      }
+
+      if (env?.ASSETS?.fetch) {
+        return await env.ASSETS.fetch(request);
+      }
+
+      return json({ success: false, message: "Static asset binding is not configured." }, 503);
+    } catch (error) {
+      return workerError(error);
     }
-
-    if (request.method === "GET" && url.pathname === "/rock-solid-website-quote-config") {
-      return json({
-        success: true,
-        runtime: "worker",
-        hasQuoteImagesBucket: Boolean(env.QUOTE_IMAGES_BUCKET),
-        hasHighLevelApiToken: Boolean(env.HIGHLEVEL_API_TOKEN),
-        hasLocationId: Boolean(env.HIGHLEVEL_LOCATION_ID),
-        hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
-        hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
-        hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
-        hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
-        hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
-        hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
-      });
-    }
-
-    if (request.method === "GET" && url.pathname.startsWith("/quote-images/")) {
-      return handleQuoteImageRequest(request, env);
-    }
-
-    if (request.method === "POST" && url.pathname === "/rock-solid-website-quote") {
-      return handleQuoteSubmission(request, env);
-    }
-
-    if (request.method === "GET" && url.pathname === "/google-reviews-config") {
-      return json({
-        success: true,
-        runtime: "worker",
-        hasGoogleClientId: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID),
-        hasGoogleClientSecret: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET),
-        hasGoogleRefreshToken: Boolean(env.GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN),
-        hasGoogleLocationName: Boolean(getConfiguredGoogleLocationName(env)),
-        hasGoogleAccountId: Boolean(env.GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID),
-        hasGoogleLocationId: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID),
-        canDiscoverGoogleAccount: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID)
-      });
-    }
-
-    if (request.method === "GET" && url.pathname === "/google-reviews") {
-      return handleGoogleReviews(env);
-    }
-
-    return env.ASSETS.fetch(request);
   }
 };
 
@@ -538,6 +547,11 @@ function json(body, status = 200, headers = {}) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
+}
+
+function workerError(error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return json({ success: false, message: "Unhandled worker error.", detail }, 500);
 }
 
 async function handleQuoteImageRequest(request, env) {
