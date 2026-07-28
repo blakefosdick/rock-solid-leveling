@@ -62,7 +62,7 @@ export default {
         return await env.ASSETS.fetch(request);
       }
 
-      return json({ success: false, message: "Static asset binding is not configured." }, 503);
+      return json({ success: false, message: "Not found." }, 404);
     } catch (error) {
       return workerError(error);
     }
