@@ -3,7 +3,8 @@
   "main": "_worker.js",
   "compatibility_date": "2026-04-28",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
   },
   "vars": {
     "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com",
