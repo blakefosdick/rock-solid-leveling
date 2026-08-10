@@ -99,6 +99,29 @@ Tip: After changing Cloudflare secrets/bindings, deploy again and check `/rock-s
 
 If you are deploying from Codex Cloud PR builds, create a new commit/PR update to trigger a fresh deploy whenever function or worker code changes.
 
+## Meta Conversions API
+
+The site sends Meta Conversions API events directly from the Cloudflare Worker. It does not use Datahash or Conversions API Gateway.
+
+Implemented events:
+
+- `ViewContent`: fired once per page load from the browser to `POST /meta-capi/view-content`, then sent server-side with event time, source URL, event ID, action source, client IP, user agent, `_fbp`, and `_fbc` when present.
+- `Lead`: queued only after the existing quote flow succeeds: R2 image upload, HighLevel contact upsert, and quote notification email. Meta failures are logged but do not fail an otherwise successful estimate request.
+
+The browser helper in `src/metaCapi.ts` creates/persists `_fbp`, captures `_fbc` from `fbclid` when available, and adds Meta identifiers plus a lead event ID to the existing multipart quote request. The Worker hashes customer fields that Meta requires hashed before sending them. It does not hash `_fbp`, `_fbc`, client IP, or user agent.
+
+Required Worker configuration:
+
+- `META_PIXEL_ID` (Cloudflare Worker var)
+- `META_CAPI_ACCESS_TOKEN` (Cloudflare secret)
+- `META_CAPI_GRAPH_VERSION` (Worker var; defaults to `v25.0`)
+
+Optional Test Events configuration:
+
+- `META_TEST_EVENT_CODE` (Worker var or secret)
+
+When `META_TEST_EVENT_CODE` is set, the Worker includes `test_event_code` in Meta requests so events appear in Meta Events Manager's Test Events tool. Remove it before production validation is complete.
+
 ## Google reviews feed
 
 The reviews section is controlled by a runtime Worker var:

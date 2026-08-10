@@ -7,6 +7,11 @@ import levelGraphic from "../images/logos/level.png";
 import processSlabGraphic from "../images/logos/slab.png";
 import { captureEvent, captureException } from "./analytics";
 import { contactDetails } from "./content";
+import {
+  createMetaLeadEventId,
+  getMetaBrowserContext,
+  sendMetaViewContent
+} from "./metaCapi";
 
 const beforeImage = "./media/before.jpg";
 const afterImage = "./media/after.jpg";
@@ -203,6 +208,8 @@ const buildWebhookPayload = ({
   images
 }: QuoteSubmission) => {
   const submissionId = createSubmissionId();
+  const metaLeadEventId = createMetaLeadEventId(submissionId);
+  const metaContext = getMetaBrowserContext();
   const { firstName, lastName } = splitFullName(name);
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
@@ -238,6 +245,11 @@ const buildWebhookPayload = ({
   formData.append("type", "WEB");
   formData.append("webhookSource", "rocksolidleveling.com");
   formData.append("submittedAt", new Date().toISOString());
+  formData.append("metaEventId", metaLeadEventId);
+  formData.append("metaLeadEventId", metaLeadEventId);
+  formData.append("metaEventSourceUrl", metaContext.eventSourceUrl);
+  formData.append("fbp", metaContext.fbp);
+  formData.append("fbc", metaContext.fbc);
   formData.append(
     "pretty",
     [
@@ -838,6 +850,10 @@ function App() {
     : footerLinks.filter((link) => link.href !== "#reviews");
 
   useRevealAnimations(showGoogleReviews);
+
+  useEffect(() => {
+    sendMetaViewContent();
+  }, []);
 
   return (
     <div className="site-shell">
