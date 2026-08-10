@@ -1,5 +1,5 @@
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
 
@@ -28,7 +28,10 @@ export default {
           hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
           hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
           hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
-          hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
+          hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0,
+          hasMetaPixelId: Boolean(env.META_PIXEL_ID),
+          hasMetaCapiAccessToken: Boolean(env.META_CAPI_ACCESS_TOKEN),
+          hasMetaTestEventCode: Boolean(env.META_TEST_EVENT_CODE)
         });
       }
 
@@ -37,7 +40,11 @@ export default {
       }
 
       if (request.method === "POST" && url.pathname === "/rock-solid-website-quote") {
-        return await handleQuoteSubmission(request, env);
+        return await handleQuoteSubmission(request, env, ctx);
+      }
+
+      if (request.method === "POST" && url.pathname === "/meta-capi/view-content") {
+        return await handleMetaViewContent(request, env, ctx);
       }
 
       if (request.method === "GET" && url.pathname === "/google-reviews-config") {
@@ -358,7 +365,365 @@ function formatRelativeTime(value) {
   return "Just now";
 }
 
-async function handleQuoteSubmission(request, env) {
+async function handleMetaViewContent(request, env, ctx) {
+  const payload = await request.json().catch(() => ({}));
+  const metaConfig = getMetaCapiConfig(env);
+
+  queueMetaCapiEvent(ctx, async () =>
+    sendMetaCapiEvent(env, {
+      event_name: "ViewContent",
+      event_time: unixSeconds(),
+      event_id: sanitizeMetaEventId(payload?.event_id, "rsl-viewcontent"),
+      event_source_url: sanitizeMetaEventSourceUrl(
+        String(payload?.event_source_url || ""),
+        request.url
+      ),
+      action_source: "website",
+      user_data: buildMetaBrowserUserData({
+        request,
+        fbp: payload?.fbp,
+        fbc: payload?.fbc
+      })
+    })
+  );
+
+  return json({
+    success: true,
+    queued: metaConfig.isConfigured
+  });
+}
+
+function queueMetaCapiEvent(ctx, createTask) {
+  const task = Promise.resolve()
+    .then(createTask)
+    .catch((error) => {
+      logMetaCapi("meta_capi_unhandled_error", {
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    });
+
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(task);
+    return;
+  }
+
+  void task;
+}
+
+async function sendMetaCapiEvent(env, event) {
+  const config = getMetaCapiConfig(env);
+
+  if (!config.isConfigured) {
+    logMetaCapi("meta_capi_skipped", {
+      eventName: event.event_name,
+      eventId: event.event_id,
+      missing: config.missing.join(",")
+    });
+    return;
+  }
+
+  const eventPayload = {
+    ...event,
+    user_data: removeEmpty(event.user_data || {})
+  };
+  const requestPayload = {
+    data: [eventPayload],
+    ...(config.testEventCode ? { test_event_code: config.testEventCode } : {})
+  };
+  const eventsUrl = new URL(
+    `https://graph.facebook.com/${config.graphVersion}/${encodeURIComponent(config.pixelId)}/events`
+  );
+  eventsUrl.searchParams.set("access_token", config.accessToken);
+
+  const response = await fetch(eventsUrl.toString(), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestPayload)
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    logMetaCapi("meta_capi_request_failed", {
+      eventName: event.event_name,
+      eventId: event.event_id,
+      status: response.status,
+      testMode: Boolean(config.testEventCode),
+      detail: truncateForLog(responseText)
+    });
+    return;
+  }
+
+  const result = safeJsonParse(responseText);
+  logMetaCapi("meta_capi_request_succeeded", {
+    eventName: event.event_name,
+    eventId: event.event_id,
+    testMode: Boolean(config.testEventCode),
+    eventsReceived: result?.events_received,
+    messages: truncateForLog(JSON.stringify(result?.messages || []), 500)
+  });
+}
+
+function getMetaCapiConfig(env) {
+  const pixelId = String(env.META_PIXEL_ID || "").trim();
+  const accessToken = String(env.META_CAPI_ACCESS_TOKEN || "").trim();
+  const graphVersion = sanitizeMetaGraphVersion(env.META_CAPI_GRAPH_VERSION || "v25.0");
+  const testEventCode = String(env.META_TEST_EVENT_CODE || "").trim();
+  const missing = [];
+
+  if (!pixelId) missing.push("META_PIXEL_ID");
+  if (!accessToken) missing.push("META_CAPI_ACCESS_TOKEN");
+
+  return {
+    pixelId,
+    accessToken,
+    graphVersion,
+    testEventCode,
+    missing,
+    isConfigured: missing.length === 0
+  };
+}
+
+function sanitizeMetaGraphVersion(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return /^v\d+\.\d+$/.test(normalized) ? normalized : "v25.0";
+}
+
+function sanitizeMetaEventId(value, prefix) {
+  const supplied = String(value || "").trim();
+  if (supplied) {
+    return supplied.slice(0, 200);
+  }
+
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function sanitizeMetaEventSourceUrl(value, fallbackUrl) {
+  const supplied = String(value || "").trim();
+  const fallback = new URL(fallbackUrl);
+
+  try {
+    const parsed = new URL(supplied || fallbackUrl);
+    const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+    if (isHttp && parsed.hostname === fallback.hostname) {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to the request URL.
+  }
+
+  return fallback.toString();
+}
+
+function buildMetaBrowserUserData({ request, fbp, fbc }) {
+  return removeEmpty({
+    client_ip_address: getClientIp(request),
+    client_user_agent: request.headers.get("user-agent") || "",
+    fbp: String(fbp || "").trim(),
+    fbc: String(fbc || "").trim()
+  });
+}
+
+async function buildMetaLeadUserData({ request, form, contact, externalId }) {
+  const userData = buildMetaBrowserUserData({
+    request,
+    fbp: form.get("fbp"),
+    fbc: form.get("fbc")
+  });
+
+  await addHashedMetaField(userData, "em", contact.email, normalizeMetaEmail);
+  await addHashedMetaField(userData, "ph", contact.phone, normalizeMetaPhone);
+  await addHashedMetaField(userData, "fn", contact.firstName, normalizeMetaName);
+  await addHashedMetaField(userData, "ln", contact.lastName, normalizeMetaName);
+  await addHashedMetaField(userData, "ct", contact.city, normalizeMetaCity);
+  await addHashedMetaField(userData, "st", contact.state, normalizeMetaState);
+  await addHashedMetaField(userData, "zp", contact.postalCode, normalizeMetaPostalCode);
+  await addHashedMetaField(userData, "country", contact.country, normalizeMetaCountry);
+  await addHashedMetaField(userData, "external_id", externalId, normalizeMetaExternalId);
+
+  return removeEmpty(userData);
+}
+
+async function addHashedMetaField(target, key, value, normalize) {
+  const normalized = normalize(value);
+  if (!normalized) {
+    return;
+  }
+
+  target[key] = await sha256Hex(normalized);
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getClientIp(request) {
+  const directIp = request.headers.get("cf-connecting-ip");
+  if (directIp) {
+    return directIp;
+  }
+
+  return String(request.headers.get("x-forwarded-for") || "")
+    .split(",")[0]
+    .trim();
+}
+
+function normalizeMetaEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeMetaPhone(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `1${digits}`;
+  }
+
+  return digits;
+}
+
+function normalizeMetaName(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeMetaCity(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function normalizeMetaState(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  return usStateCodes[normalized] || normalized;
+}
+
+function normalizeMetaPostalCode(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function normalizeMetaCountry(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (["us", "usa", "unitedstates", "unitedstatesofamerica"].includes(normalized)) {
+    return "us";
+  }
+
+  return normalized;
+}
+
+function normalizeMetaExternalId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getAddressParts(form, raw) {
+  return {
+    city: getFirstValue(form, raw, ["city", "q_city", "q7_city"]),
+    state: getFirstValue(form, raw, ["state", "province", "q_state", "q7_state"]),
+    postalCode: getFirstValue(form, raw, ["postalCode", "zip", "zipcode", "q_zip", "q7_zip"]),
+    country: getFirstValue(form, raw, ["country", "q_country", "q7_country"]) || "United States"
+  };
+}
+
+function getFirstValue(form, raw, keys) {
+  for (const key of keys) {
+    const formValue = String(form.get(key) || "").trim();
+    if (formValue) {
+      return formValue;
+    }
+
+    const rawValue = raw && typeof raw === "object" ? raw[key] : "";
+    if (typeof rawValue === "string" && rawValue.trim()) {
+      return rawValue.trim();
+    }
+  }
+
+  return "";
+}
+
+function removeEmpty(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined && entryValue !== null && entryValue !== "")
+  );
+}
+
+function unixSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function truncateForLog(value, maxLength = 1200) {
+  const text = String(value || "");
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function logMetaCapi(message, detail) {
+  console.log(JSON.stringify({
+    message,
+    ...detail
+  }));
+}
+
+const usStateCodes = {
+  alabama: "al",
+  alaska: "ak",
+  arizona: "az",
+  arkansas: "ar",
+  california: "ca",
+  colorado: "co",
+  connecticut: "ct",
+  delaware: "de",
+  districtofcolumbia: "dc",
+  florida: "fl",
+  georgia: "ga",
+  hawaii: "hi",
+  idaho: "id",
+  illinois: "il",
+  indiana: "in",
+  iowa: "ia",
+  kansas: "ks",
+  kentucky: "ky",
+  louisiana: "la",
+  maine: "me",
+  maryland: "md",
+  massachusetts: "ma",
+  michigan: "mi",
+  minnesota: "mn",
+  mississippi: "ms",
+  missouri: "mo",
+  montana: "mt",
+  nebraska: "ne",
+  nevada: "nv",
+  newhampshire: "nh",
+  newjersey: "nj",
+  newmexico: "nm",
+  newyork: "ny",
+  northcarolina: "nc",
+  northdakota: "nd",
+  ohio: "oh",
+  oklahoma: "ok",
+  oregon: "or",
+  pennsylvania: "pa",
+  rhodeisland: "ri",
+  southcarolina: "sc",
+  southdakota: "sd",
+  tennessee: "tn",
+  texas: "tx",
+  utah: "ut",
+  vermont: "vt",
+  virginia: "va",
+  washington: "wa",
+  westvirginia: "wv",
+  wisconsin: "wi",
+  wyoming: "wy"
+};
+
+async function handleQuoteSubmission(request, env, ctx) {
   try {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
@@ -411,6 +776,7 @@ async function handleQuoteSubmission(request, env) {
   const name = suppliedFirst || suppliedLast
     ? { firstName: suppliedFirst, lastName: suppliedLast }
     : splitFullName(suppliedFullName);
+  const addressParts = getAddressParts(form, raw);
 
   const submissionId = String(form.get("submissionID") || form.get("submissionId") || `rsl-${Date.now()}`);
   const submissionSlug = slugify(submissionId, `submission-${Date.now()}`);
@@ -449,10 +815,10 @@ async function handleQuoteSubmission(request, env) {
     email: String(form.get("email") || raw?.q5_email5 || "").trim(),
     phone: String(form.get("phone") || raw?.q12_phoneNumber?.full || "").trim(),
     address1: String(form.get("address") || "").trim(),
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "United States",
+    city: addressParts.city,
+    state: addressParts.state,
+    postalCode: addressParts.postalCode,
+    country: addressParts.country,
     tags: ["website quote form"],
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: String(form.get("squareFeet") || raw?.q13_number || "").trim() },
@@ -534,6 +900,25 @@ async function handleQuoteSubmission(request, env) {
     ].join("\n"),
     html: buildNotificationHtml({ fullName, address, phone, contactUrl })
   });
+
+  queueMetaCapiEvent(ctx, async () =>
+    sendMetaCapiEvent(env, {
+      event_name: "Lead",
+      event_time: unixSeconds(),
+      event_id: String(form.get("metaLeadEventId") || form.get("metaEventId") || `rsl-lead-${submissionId}`).trim(),
+      event_source_url: sanitizeMetaEventSourceUrl(
+        String(form.get("metaEventSourceUrl") || ""),
+        request.url
+      ),
+      action_source: "website",
+      user_data: await buildMetaLeadUserData({
+        request,
+        form,
+        contact: highLevelPayload,
+        externalId: contactId || highLevelPayload.email || highLevelPayload.phone || submissionId
+      })
+    })
+  );
 
   return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
   } catch (error) {
