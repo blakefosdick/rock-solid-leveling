@@ -44,6 +44,12 @@ VITE_POSTHOG_UI_HOST=https://us.posthog.com
 
 Important: these are Vite build-time variables. Cloudflare Worker runtime vars from `wrangler.jsonc` are available to `_worker.js`, but they are not injected into the browser bundle after the site has already been built.
 
+To enable the browser Meta Pixel, set this public Vite variable before building:
+
+```bash
+VITE_META_PIXEL_ID=1427725189200896
+```
+
 
 ### Quote form submission flow (sanity check)
 
@@ -99,16 +105,21 @@ Tip: After changing Cloudflare secrets/bindings, deploy again and check `/rock-s
 
 If you are deploying from Codex Cloud PR builds, create a new commit/PR update to trigger a fresh deploy whenever function or worker code changes.
 
-## Meta Conversions API
+## Meta Pixel and Conversions API
 
-The site sends Meta Conversions API events directly from the Cloudflare Worker. It does not use Datahash or Conversions API Gateway.
+The site sends browser Meta Pixel events from the React app and server Meta Conversions API events directly from the Cloudflare Worker. It does not use Datahash or Conversions API Gateway.
 
 Implemented events:
 
-- `ViewContent`: fired once per page load from the browser to `POST /meta-capi/view-content`, then sent server-side with event time, source URL, event ID, action source, client IP, user agent, `_fbp`, and `_fbc` when present.
-- `Lead`: queued only after the existing quote flow succeeds: R2 image upload, HighLevel contact upsert, and quote notification email. Meta failures are logged but do not fail an otherwise successful estimate request.
+- `PageView`: fired browser-side by the Meta Pixel after `fbq("init", pixelId)`.
+- `ViewContent`: fired once per page load in the browser and sent to `POST /meta-capi/view-content` for server-side CAPI. Both use the same event ID for deduplication.
+- `Lead`: fired browser-side only after the estimate form returns success. The matching server-side CAPI `Lead` is queued only after the existing quote flow succeeds: R2 image upload, HighLevel contact upsert, HighLevel image-field update, and quote notification email. Meta failures are logged but do not fail an otherwise successful estimate request.
 
-The browser helper in `src/metaCapi.ts` creates/persists `_fbp`, captures `_fbc` from `fbclid` when available, and adds Meta identifiers plus a lead event ID to the existing multipart quote request. The Worker hashes customer fields that Meta requires hashed before sending them. It does not hash `_fbp`, `_fbc`, client IP, or user agent.
+The browser helper in `src/metaCapi.ts` creates/persists `_fbp`, captures `_fbc` from `fbclid` when available, and adds Meta identifiers plus a lead event ID to the existing multipart quote request. The browser Pixel helper in `src/metaPixel.ts` uses the same `ViewContent` and `Lead` IDs that CAPI sends as `event_id`; the browser Pixel sends those as `eventID`. The Worker hashes customer fields that Meta requires hashed before sending them. It does not hash `_fbp`, `_fbc`, client IP, or user agent.
+
+Required browser build configuration:
+
+- `VITE_META_PIXEL_ID` (public Vite build-time var)
 
 Required Worker configuration:
 

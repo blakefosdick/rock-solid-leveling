@@ -10,8 +10,14 @@ import { contactDetails } from "./content";
 import {
   createMetaLeadEventId,
   getMetaBrowserContext,
+  getMetaViewContentEventId,
   sendMetaViewContent
 } from "./metaCapi";
+import {
+  initMetaPixel,
+  trackMetaPixelLead,
+  trackMetaPixelViewContent
+} from "./metaPixel";
 
 const beforeImage = "./media/before.jpg";
 const afterImage = "./media/after.jpg";
@@ -198,6 +204,11 @@ type QuoteSubmission = {
   images: File[];
 };
 
+type QuoteWebhookPayload = {
+  formData: FormData;
+  metaLeadEventId: string;
+};
+
 const buildWebhookPayload = ({
   name,
   phone,
@@ -206,7 +217,7 @@ const buildWebhookPayload = ({
   squareFeet,
   details,
   images
-}: QuoteSubmission) => {
+}: QuoteSubmission): QuoteWebhookPayload => {
   const submissionId = createSubmissionId();
   const metaLeadEventId = createMetaLeadEventId(submissionId);
   const metaContext = getMetaBrowserContext();
@@ -277,7 +288,10 @@ const buildWebhookPayload = ({
     formData.append("images", image, image.name);
   });
 
-  return formData;
+  return {
+    formData,
+    metaLeadEventId
+  };
 };
 
 function useRevealAnimations(refreshKey: unknown) {
@@ -661,18 +675,19 @@ function QuoteForm() {
 
     try {
       setIsSubmitting(true);
+      const quotePayload = buildWebhookPayload({
+        name,
+        phone,
+        email,
+        address,
+        squareFeet,
+        details,
+        images
+      });
 
       const response = await fetch(n8nWebhookUrl, {
         method: "POST",
-        body: buildWebhookPayload({
-          name,
-          phone,
-          email,
-          address,
-          squareFeet,
-          details,
-          images
-        })
+        body: quotePayload.formData
       });
 
       if (!response.ok) {
@@ -710,6 +725,7 @@ function QuoteForm() {
         image_count: images.length,
         has_square_feet: squareFeet.trim().length > 0
       });
+      trackMetaPixelLead(quotePayload.metaLeadEventId);
       setStatusMessage("Thanks. Your estimate request was sent successfully.");
     } catch (error) {
       console.error("Quote webhook submission failed", error);
@@ -852,6 +868,8 @@ function App() {
   useRevealAnimations(showGoogleReviews);
 
   useEffect(() => {
+    initMetaPixel();
+    trackMetaPixelViewContent(getMetaViewContentEventId());
     sendMetaViewContent();
   }, []);
 
