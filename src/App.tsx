@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import "./app.css";
 import heroLogo from "../images/logos/LogoSquareTextandImagepng.png";
 import headerLogo from "../images/logos/TextandSlabsHorizontal.png";
@@ -21,6 +21,7 @@ import {
 
 const beforeImage = "./media/before.jpg";
 const afterImage = "./media/after.jpg";
+const freeEstimatePath = "/free-estimate";
 
 const navLinks = [
   { href: "#services", label: "Services" },
@@ -69,6 +70,35 @@ const processSteps = [
   }
 ];
 
+const concreteTypeOptions = [
+  "Sidewalk",
+  "Driveway",
+  "Patio",
+  "Steps",
+  "Garage approach",
+  "Garage floor",
+  "Other"
+];
+
+const adTrustPoints = [
+  "Locally owned",
+  "Omaha-area service",
+  "Insured",
+  "Free estimates",
+  "Quick return to use"
+];
+
+const adResultCards = [
+  {
+    title: "Sidewalk trip hazard lifted",
+    copy: "Settled sidewalk panels can often be brought back to a safer, cleaner grade without tear-out."
+  },
+  {
+    title: "Driveways, patios, and approaches",
+    copy: "Grout-based leveling fills voids beneath existing concrete so good slabs can keep working."
+  }
+];
+
 const faqs = [
   {
     question: "What is the benefit of grout-based pumping?",
@@ -109,7 +139,48 @@ const footerLinks = [
 
 const n8nWebhookUrl = "/rock-solid-website-quote";
 const n8nFormId = import.meta.env.VITE_N8N_FORM_ID?.trim() ?? "rock-solid-website";
+const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
 const googleReviewsUrl = "https://maps.app.goo.gl/13pJzDvta4psNmd76?g_st=ac";
+const siteUrl = "https://rocksolidleveling.com";
+const freeEstimateUrl = `${siteUrl}${freeEstimatePath}`;
+const omahaProximity = "-95.9345,41.2565";
+
+const freeEstimateStructuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "HomeAndConstructionBusiness",
+      "@id": `${siteUrl}/#business`,
+      name: "Rock Solid Leveling",
+      alternateName: "R&B Concrete Leveling and Repair",
+      url: siteUrl,
+      telephone: "+1-402-682-8151",
+      email: "info@rocksolidleveling.com",
+      areaServed: ["Omaha, Nebraska", "Nebraska"],
+      makesOffer: {
+        "@type": "Offer",
+        name: "Free concrete leveling estimate",
+        areaServed: "Omaha, Nebraska",
+        itemOffered: {
+          "@type": "Service",
+          name: "Concrete leveling",
+          serviceType: "Sidewalk, driveway, patio, steps, and garage approach leveling"
+        }
+      }
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: faqs.map((faq) => ({
+        "@type": "Question",
+        name: faq.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: faq.answer
+        }
+      }))
+    }
+  ]
+};
 
 type SiteConfig = {
   showGoogleReviews?: boolean;
@@ -129,6 +200,38 @@ type GoogleReviewsResponse = {
   reviews?: GoogleReviewCard[];
   averageRating?: number;
   totalReviewCount?: number;
+};
+
+type MapboxSuggestion = {
+  mapbox_id: string;
+  name: string;
+  address?: string;
+  full_address?: string;
+  place_formatted?: string;
+  context?: {
+    postcode?: {
+      name?: string;
+    };
+  };
+};
+
+type MapboxSuggestResponse = {
+  suggestions?: MapboxSuggestion[];
+};
+
+type MapboxRetrieveResponse = {
+  features?: Array<{
+    properties?: {
+      address?: string;
+      full_address?: string;
+      name?: string;
+      context?: {
+        postcode?: {
+          name?: string;
+        };
+      };
+    };
+  }>;
 };
 
 const googleReviewFallbackCards: GoogleReviewCard[] = [
@@ -169,6 +272,20 @@ const createSubmissionId = () => {
 const getDefaultGoogleReviewsVisibility = () =>
   String(import.meta.env.VITE_GOOGLE_REVIEWS_ENABLED ?? "").toLowerCase() === "true";
 
+const createSearchSessionToken = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `rsl-mapbox-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const formatMapboxSuggestion = (suggestion: MapboxSuggestion) =>
+  suggestion.full_address ||
+  [suggestion.address || suggestion.name, suggestion.place_formatted]
+    .filter(Boolean)
+    .join(", ");
+
 const splitFullName = (fullName: string) => {
   const trimmedName = fullName.trim();
 
@@ -183,6 +300,149 @@ const splitFullName = (fullName: string) => {
     lastName: remainingNames.join(" ")
   };
 };
+
+const trackingParamNames = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "utm_id",
+  "fbclid",
+  "gclid",
+  "msclkid"
+];
+
+const attributionStorageKey = "rsl_lead_attribution";
+
+const getCurrentPath = () => {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return window.location.pathname || "/";
+};
+
+const getCurrentPageUrl = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.href;
+};
+
+const readTrackingParamsFromUrl = () => {
+  if (typeof window === "undefined") {
+    return {} as Record<string, string>;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const trackingParams: Record<string, string> = {};
+
+  trackingParamNames.forEach((name) => {
+    const value = params.get(name)?.trim();
+    if (value) {
+      trackingParams[name] = value;
+    }
+  });
+
+  return trackingParams;
+};
+
+const getLeadAttribution = () => {
+  const currentParams = readTrackingParamsFromUrl();
+  let storedParams: Record<string, string> = {};
+
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      storedParams = JSON.parse(
+        window.sessionStorage.getItem(attributionStorageKey) || "{}"
+      ) as Record<string, string>;
+    } catch {
+      storedParams = {};
+    }
+
+    const nextParams = { ...storedParams, ...currentParams };
+    if (Object.keys(currentParams).length > 0) {
+      window.sessionStorage.setItem(attributionStorageKey, JSON.stringify(nextParams));
+    }
+
+    return nextParams;
+  }
+
+  return currentParams;
+};
+
+const upsertNamedMeta = (name: string, content: string) => {
+  let element = document.head.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+
+  if (!element) {
+    element = document.createElement("meta");
+    element.name = name;
+    document.head.appendChild(element);
+  }
+
+  element.content = content;
+};
+
+const upsertPropertyMeta = (property: string, content: string) => {
+  let element = document.head.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+
+  if (!element) {
+    element = document.createElement("meta");
+    element.setAttribute("property", property);
+    document.head.appendChild(element);
+  }
+
+  element.content = content;
+};
+
+const upsertCanonical = (href: string) => {
+  let element = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+
+  if (!element) {
+    element = document.createElement("link");
+    element.rel = "canonical";
+    document.head.appendChild(element);
+  }
+
+  element.href = href;
+};
+
+function usePageMetadata({
+  title,
+  description,
+  canonicalUrl,
+  structuredData
+}: {
+  title: string;
+  description: string;
+  canonicalUrl: string;
+  structuredData: Record<string, unknown>;
+}) {
+  useEffect(() => {
+    document.title = title;
+    upsertNamedMeta("description", description);
+    upsertCanonical(canonicalUrl);
+    upsertPropertyMeta("og:title", title);
+    upsertPropertyMeta("og:description", description);
+    upsertPropertyMeta("og:url", canonicalUrl);
+    upsertNamedMeta("twitter:title", title);
+    upsertNamedMeta("twitter:description", description);
+
+    const scriptId = "page-structured-data";
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.type = "application/ld+json";
+      document.head.appendChild(script);
+    }
+
+    script.text = JSON.stringify(structuredData);
+  }, [canonicalUrl, description, structuredData, title]);
+}
 
 const createLegacyAddressBlock = (address: string) => {
   const trimmedAddress = address.trim();
@@ -201,7 +461,11 @@ type QuoteSubmission = {
   address: string;
   squareFeet: string;
   details: string;
+  zipCode: string;
+  concreteTypes: string[];
   images: File[];
+  submissionSource: string;
+  formTitle: string;
 };
 
 type QuoteWebhookPayload = {
@@ -216,11 +480,16 @@ const buildWebhookPayload = ({
   address,
   squareFeet,
   details,
-  images
+  zipCode,
+  concreteTypes,
+  images,
+  submissionSource,
+  formTitle
 }: QuoteSubmission): QuoteWebhookPayload => {
   const submissionId = createSubmissionId();
   const metaLeadEventId = createMetaLeadEventId(submissionId);
   const metaContext = getMetaBrowserContext();
+  const attribution = getLeadAttribution();
   const { firstName, lastName } = splitFullName(name);
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
@@ -228,9 +497,20 @@ const buildWebhookPayload = ({
   const trimmedAddress = address.trim();
   const trimmedSquareFeet = squareFeet.trim();
   const trimmedDetails = details.trim();
+  const trimmedZipCode = zipCode.trim();
+  const selectedConcreteTypes = concreteTypes.map((type) => type.trim()).filter(Boolean);
+  const concreteTypeSummary = selectedConcreteTypes.join(", ");
+  const sourcePath = getCurrentPath();
+  const normalizedDetails = [
+    trimmedDetails,
+    concreteTypeSummary ? `Concrete types: ${concreteTypeSummary}` : "",
+    trimmedZipCode ? `ZIP code: ${trimmedZipCode}` : ""
+  ].filter(Boolean).join("\n");
 
   const rawRequest = {
-    submitSource: "website",
+    submitSource: submissionSource,
+    pageUrl: getCurrentPageUrl(),
+    attribution,
     submitDate: Date.now().toString(),
     q11_name: {
       first: firstName,
@@ -241,18 +521,22 @@ const buildWebhookPayload = ({
     },
     q5_email5: trimmedEmail,
     q7_typeA: createLegacyAddressBlock(trimmedAddress),
+    zip: trimmedZipCode,
+    postalCode: trimmedZipCode,
     q13_number: trimmedSquareFeet,
-    q17_anyNotes: trimmedDetails,
+    q17_anyNotes: normalizedDetails,
+    concreteType: concreteTypeSummary,
+    concreteTypes: selectedConcreteTypes,
     q16_typeA16: "",
     q18_uploadedFiles: images.map((image) => image.name),
-    path: "/website-quote"
+    path: sourcePath
   };
 
   const formData = new FormData();
 
   formData.append("formID", n8nFormId);
   formData.append("submissionID", submissionId);
-  formData.append("formTitle", "Get a Quote");
+  formData.append("formTitle", formTitle);
   formData.append("type", "WEB");
   formData.append("webhookSource", "rocksolidleveling.com");
   formData.append("submittedAt", new Date().toISOString());
@@ -261,6 +545,9 @@ const buildWebhookPayload = ({
   formData.append("metaEventSourceUrl", metaContext.eventSourceUrl);
   formData.append("fbp", metaContext.fbp);
   formData.append("fbc", metaContext.fbc);
+  formData.append("submitSource", submissionSource);
+  formData.append("pagePath", sourcePath);
+  formData.append("pageUrl", getCurrentPageUrl());
   formData.append(
     "pretty",
     [
@@ -268,8 +555,10 @@ const buildWebhookPayload = ({
       `Phone Number:${trimmedPhone}`,
       `Email:${trimmedEmail}`,
       `Address:${trimmedAddress}`,
+      `ZIP Code:${trimmedZipCode}`,
+      `Concrete Types:${concreteTypeSummary}`,
       `Square Feet of Slabs:${trimmedSquareFeet || "Not provided"}`,
-      `Any notes or comments? :${trimmedDetails}`,
+      `Any notes or comments? :${normalizedDetails}`,
       `Images:${images.length > 0 ? images.map((image) => image.name).join(", ") : "None"}`
     ].join(", ")
   );
@@ -280,9 +569,19 @@ const buildWebhookPayload = ({
   formData.append("phone", trimmedPhone);
   formData.append("email", trimmedEmail);
   formData.append("address", trimmedAddress);
+  formData.append("zip", trimmedZipCode);
+  formData.append("postalCode", trimmedZipCode);
+  formData.append("concreteType", concreteTypeSummary);
+  selectedConcreteTypes.forEach((type) => {
+    formData.append("concreteTypes", type);
+  });
   formData.append("squareFeet", trimmedSquareFeet);
-  formData.append("details", trimmedDetails);
+  formData.append("details", normalizedDetails);
   formData.append("imageCount", String(images.length));
+
+  Object.entries(attribution).forEach(([key, value]) => {
+    formData.append(key, value);
+  });
 
   images.forEach((image) => {
     formData.append("images", image, image.name);
@@ -637,13 +936,249 @@ function FaqItem({
   );
 }
 
-function QuoteForm() {
+function AddressAutocompleteInput({
+  address,
+  zipCode,
+  onAddressChange,
+  onZipCodeChange,
+  variant,
+  submissionSource
+}: {
+  address: string;
+  zipCode: string;
+  onAddressChange: (value: string) => void;
+  onZipCodeChange: (value: string) => void;
+  variant: string;
+  submissionSource: string;
+}) {
+  const listboxId = useId();
+  const inputId = useId();
+  const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [sessionToken, setSessionToken] = useState(createSearchSessionToken);
+
+  const canAutocomplete = Boolean(mapboxAccessToken);
+
+  useEffect(() => {
+    if (!canAutocomplete || address.trim().length < 3) {
+      setSuggestions([]);
+      setIsOpen(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    const debounceTimer = window.setTimeout(() => {
+      const loadSuggestions = async () => {
+        const suggestUrl = new URL("https://api.mapbox.com/search/searchbox/v1/suggest");
+        suggestUrl.searchParams.set("q", address.trim());
+        suggestUrl.searchParams.set("access_token", mapboxAccessToken);
+        suggestUrl.searchParams.set("session_token", sessionToken);
+        suggestUrl.searchParams.set("country", "US");
+        suggestUrl.searchParams.set("types", "address");
+        suggestUrl.searchParams.set("language", "en");
+        suggestUrl.searchParams.set("limit", "5");
+        suggestUrl.searchParams.set("proximity", omahaProximity);
+
+        try {
+          setIsLoadingSuggestions(true);
+          const response = await fetch(suggestUrl.toString(), {
+            signal: abortController.signal
+          });
+
+          if (!response.ok) {
+            throw new Error(`Mapbox suggest failed with status ${response.status}`);
+          }
+
+          const payload = (await response.json()) as MapboxSuggestResponse;
+          const nextSuggestions = (payload.suggestions ?? []).filter(
+            (suggestion) => suggestion.mapbox_id && formatMapboxSuggestion(suggestion)
+          );
+
+          setSuggestions(nextSuggestions);
+          setActiveIndex(nextSuggestions.length > 0 ? 0 : -1);
+          setIsOpen(nextSuggestions.length > 0);
+        } catch (error) {
+          if (!abortController.signal.aborted) {
+            console.warn("Mapbox address suggestions unavailable", error);
+            setSuggestions([]);
+            setIsOpen(false);
+          }
+        } finally {
+          if (!abortController.signal.aborted) {
+            setIsLoadingSuggestions(false);
+          }
+        }
+      };
+
+      void loadSuggestions();
+    }, 220);
+
+    return () => {
+      window.clearTimeout(debounceTimer);
+      abortController.abort();
+    };
+  }, [address, canAutocomplete, sessionToken]);
+
+  const selectSuggestion = async (suggestion: MapboxSuggestion) => {
+    const fallbackAddress = suggestion.address || suggestion.name || formatMapboxSuggestion(suggestion);
+    const fallbackZip = suggestion.context?.postcode?.name || zipCode;
+
+    setIsOpen(false);
+    setSuggestions([]);
+    onAddressChange(fallbackAddress);
+    if (fallbackZip) {
+      onZipCodeChange(fallbackZip);
+    }
+
+    if (!mapboxAccessToken) {
+      return;
+    }
+
+    try {
+      const retrieveUrl = new URL(
+        `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(suggestion.mapbox_id)}`
+      );
+      retrieveUrl.searchParams.set("access_token", mapboxAccessToken);
+      retrieveUrl.searchParams.set("session_token", sessionToken);
+      retrieveUrl.searchParams.set("language", "en");
+
+      const response = await fetch(retrieveUrl.toString());
+      if (!response.ok) {
+        throw new Error(`Mapbox retrieve failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as MapboxRetrieveResponse;
+      const properties = payload.features?.[0]?.properties;
+      const retrievedAddress = properties?.address || properties?.name || fallbackAddress;
+      const retrievedZip = properties?.context?.postcode?.name || fallbackZip;
+
+      onAddressChange(retrievedAddress);
+      if (retrievedZip) {
+        onZipCodeChange(retrievedZip);
+      }
+
+      captureEvent("address_autocomplete_selected", {
+        form_variant: variant,
+        source: submissionSource,
+        page_path: getCurrentPath(),
+        has_zip: Boolean(retrievedZip)
+      });
+    } catch (error) {
+      console.warn("Mapbox address retrieve unavailable", error);
+    } finally {
+      setSessionToken(createSearchSessionToken());
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen || suggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((currentIndex) => (currentIndex + 1) % suggestions.length);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((currentIndex) =>
+        currentIndex <= 0 ? suggestions.length - 1 : currentIndex - 1
+      );
+      return;
+    }
+
+    if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      void selectSuggestion(suggestions[activeIndex]);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className="quote-form__autocomplete">
+      <label htmlFor={inputId}>Service Address</label>
+      <input
+        id={inputId}
+        type="text"
+        name="address"
+        autoComplete="street-address"
+        placeholder="123 Omaha St."
+        required
+        value={address}
+        role={canAutocomplete ? "combobox" : undefined}
+        aria-autocomplete={canAutocomplete ? "list" : undefined}
+        aria-expanded={canAutocomplete ? isOpen : undefined}
+        aria-controls={canAutocomplete ? listboxId : undefined}
+        aria-activedescendant={
+          canAutocomplete && activeIndex >= 0
+            ? `${listboxId}-option-${activeIndex}`
+            : undefined
+        }
+        onChange={(event) => onAddressChange(event.target.value)}
+        onFocus={() => {
+          if (suggestions.length > 0) {
+            setIsOpen(true);
+          }
+        }}
+        onKeyDown={handleKeyDown}
+      />
+      {canAutocomplete && isOpen ? (
+        <div className="quote-form__suggestions" id={listboxId} role="listbox">
+          {suggestions.map((suggestion, index) => (
+            <button
+              id={`${listboxId}-option-${index}`}
+              className={index === activeIndex ? "is-active" : ""}
+              key={suggestion.mapbox_id}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void selectSuggestion(suggestion)}
+            >
+              {formatMapboxSuggestion(suggestion)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {canAutocomplete && isLoadingSuggestions ? (
+        <span className="quote-form__autocomplete-status" aria-live="polite">
+          Looking up addresses...
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+type QuoteFormProps = {
+  variant?: "full" | "ad";
+  submissionSource?: string;
+  submitLabel?: string;
+  successMessage?: string;
+};
+
+function QuoteForm({
+  variant = "full",
+  submissionSource = "website",
+  submitLabel,
+  successMessage = "Thanks. Your estimate request was sent successfully."
+}: QuoteFormProps = {}) {
+  const isAdForm = variant === "ad";
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [squareFeet, setSquareFeet] = useState("");
   const [details, setDetails] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [concreteTypes, setConcreteTypes] = useState<string[]>([]);
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -658,7 +1193,19 @@ function QuoteForm() {
     }
 
     hasStartedFormRef.current = true;
-    captureEvent("quote_form_started");
+    captureEvent("quote_form_started", {
+      form_variant: variant,
+      source: submissionSource,
+      page_path: getCurrentPath()
+    });
+  };
+
+  const toggleConcreteType = (option: string) => {
+    setConcreteTypes((currentTypes) =>
+      currentTypes.includes(option)
+        ? currentTypes.filter((type) => type !== option)
+        : [...currentTypes, option]
+    );
   };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -673,6 +1220,17 @@ function QuoteForm() {
       return;
     }
 
+    if (isAdForm && concreteTypes.length === 0) {
+      setStatusMessage("Please select at least one type of concrete.");
+      captureEvent("quote_form_validation_failed", {
+        form_variant: variant,
+        source: submissionSource,
+        page_path: getCurrentPath(),
+        field: "concreteTypes"
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const quotePayload = buildWebhookPayload({
@@ -682,7 +1240,11 @@ function QuoteForm() {
         address,
         squareFeet,
         details,
-        images
+        zipCode,
+        concreteTypes,
+        images,
+        submissionSource,
+        formTitle: isAdForm ? "Meta Ad Free Estimate" : "Get a Quote"
       });
 
       const response = await fetch(n8nWebhookUrl, {
@@ -714,6 +1276,8 @@ function QuoteForm() {
       setAddress("");
       setSquareFeet("");
       setDetails("");
+      setZipCode("");
+      setConcreteTypes([]);
       setImages([]);
 
       if (fileInputRef.current) {
@@ -721,16 +1285,26 @@ function QuoteForm() {
       }
 
       captureEvent("quote_form_submitted", {
+        form_variant: variant,
+        source: submissionSource,
+        page_path: getCurrentPath(),
         has_images: images.length > 0,
         image_count: images.length,
-        has_square_feet: squareFeet.trim().length > 0
+        has_square_feet: squareFeet.trim().length > 0,
+        has_zip: zipCode.trim().length > 0,
+        concrete_type: concreteTypes.join(", ") || undefined
       });
       trackMetaPixelLead(quotePayload.metaLeadEventId);
-      setStatusMessage("Thanks. Your estimate request was sent successfully.");
+      setStatusMessage(successMessage);
     } catch (error) {
       console.error("Quote webhook submission failed", error);
       const detail = error instanceof Error ? error.message : "Unknown error";
-      captureEvent("quote_form_submission_failed", { error_detail: detail });
+      captureEvent("quote_form_submission_failed", {
+        form_variant: variant,
+        source: submissionSource,
+        page_path: getCurrentPath(),
+        error_detail: detail
+      });
       captureException(error instanceof Error ? error : new Error(detail));
       if (detail.includes("status 404")) {
         setStatusMessage(
@@ -771,44 +1345,103 @@ function QuoteForm() {
               onChange={(event) => setPhone(event.target.value)}
             />
           </label>
-          <label>
-            Email Address
-            <input
-              type="email"
-              name="email"
-              placeholder="your@email.com"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label>
-            Service Address
-            <input
-              type="text"
-              name="address"
-              placeholder="123 Omaha St. NE"
-              required
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-            />
-          </label>
-          <label>
-            Square Feet of Slabs
-            <input
-              type="number"
-              name="squareFeet"
-              inputMode="numeric"
-              min="0"
-              step="1"
-              placeholder="Approx. 250"
-              value={squareFeet}
-              onChange={(event) => setSquareFeet(event.target.value)}
-            />
-          </label>
+          {isAdForm ? (
+            <>
+              <label>
+                ZIP Code
+                <input
+                  type="text"
+                  name="zip"
+                  inputMode="numeric"
+                  autoComplete="postal-code"
+                  placeholder="68144"
+                  pattern="[0-9]{5}(-[0-9]{4})?"
+                  required
+                  value={zipCode}
+                  onChange={(event) => setZipCode(event.target.value)}
+                />
+              </label>
+              <AddressAutocompleteInput
+                address={address}
+                zipCode={zipCode}
+                onAddressChange={setAddress}
+                onZipCodeChange={setZipCode}
+                variant={variant}
+                submissionSource={submissionSource}
+              />
+              <div className="quote-form__choice-group">
+                <span className="quote-form__choice-label">Type of Concrete</span>
+                <div className="quote-form__choices">
+                  {concreteTypeOptions.map((option) => (
+                    <label className="quote-form__choice" key={option}>
+                      <input
+                        type="checkbox"
+                        name="concreteTypes"
+                        value={option}
+                        checked={concreteTypes.includes(option)}
+                        onChange={() => toggleConcreteType(option)}
+                      />
+                      <span>{option}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label>
+                Square Feet (Optional)
+                <input
+                  type="number"
+                  name="squareFeet"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  placeholder="Approx. 250"
+                  value={squareFeet}
+                  onChange={(event) => setSquareFeet(event.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Email Address
+                <input
+                  type="email"
+                  name="email"
+                  placeholder="your@email.com"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                Service Address
+                <input
+                  type="text"
+                  name="address"
+                  placeholder="123 Omaha St. NE"
+                  required
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                />
+              </label>
+              <label>
+                Square Feet of Slabs
+                <input
+                  type="number"
+                  name="squareFeet"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  placeholder="Approx. 250"
+                  value={squareFeet}
+                  onChange={(event) => setSquareFeet(event.target.value)}
+                />
+              </label>
+            </>
+          )}
         </div>
         <label>
-          Upload Images
+          {isAdForm ? "Upload Photos (Optional)" : "Upload Images"}
           <input
             ref={fileInputRef}
             type="file"
@@ -817,12 +1450,23 @@ function QuoteForm() {
             multiple
             aria-describedby={fileHintId}
             onChange={(event) => {
-              setImages(Array.from(event.target.files ?? []));
+              const selectedImages = Array.from(event.target.files ?? []);
+              setImages(selectedImages);
+              if (selectedImages.length > 0) {
+                captureEvent("quote_form_photo_uploaded", {
+                  form_variant: variant,
+                  source: submissionSource,
+                  page_path: getCurrentPath(),
+                  image_count: selectedImages.length
+                });
+              }
             }}
           />
         </label>
         <p className="quote-form__hint" id={fileHintId}>
-          {n8nWebhookUrl
+          {isAdForm
+            ? "Photos are optional, but they can help us estimate the repair faster."
+            : n8nWebhookUrl
             ? "Add slab photos to help speed up quoting. The form now sends your request to the estimate workflow directly."
             : "Add slab photos to speed up quoting. On supported devices, the share sheet can send them with your request. Otherwise, your email draft will open and you can attach the photos manually."}
         </p>
@@ -832,17 +1476,19 @@ function QuoteForm() {
             {images.map((image) => image.name).join(", ")}
           </p>
         ) : null}
-        <label>
-          Issue Description
-          <textarea
-            name="details"
-            rows={5}
-            placeholder="Describe the sunken area (driveway, patio, walkway...)"
-            required
-            value={details}
-            onChange={(event) => setDetails(event.target.value)}
-          />
-        </label>
+        {isAdForm ? null : (
+          <label>
+            Issue Description
+            <textarea
+              name="details"
+              rows={5}
+              placeholder="Describe the sunken area (driveway, patio, walkway...)"
+              required
+              value={details}
+              onChange={(event) => setDetails(event.target.value)}
+            />
+          </label>
+        )}
       </fieldset>
       {statusMessage ? (
         <p className="quote-form__status" id={statusMessageId} aria-live="polite">
@@ -850,14 +1496,215 @@ function QuoteForm() {
         </p>
       ) : null}
       <button type="submit" className="button button--primary button--block" disabled={isSubmitting}>
-        {isSubmitting ? "Sending..." : n8nWebhookUrl ? "Send Request" : "Submit Request"}
+        {isSubmitting ? "Sending..." : submitLabel ?? (n8nWebhookUrl ? "Send Request" : "Submit Request")}
       </button>
     </form>
   );
 }
 
+function FreeEstimatePage({ showGoogleReviews }: { showGoogleReviews: boolean }) {
+  usePageMetadata({
+    title: "Free Concrete Leveling Estimate in Omaha | Rock Solid Leveling",
+    description:
+      "Get a free Omaha concrete leveling estimate for sidewalks, driveways, patios, steps, and garage approaches. Often 50-70% less than replacement.",
+    canonicalUrl: freeEstimateUrl,
+    structuredData: freeEstimateStructuredData
+  });
+
+  useEffect(() => {
+    getLeadAttribution();
+  }, []);
+
+  return (
+    <div className="ad-shell">
+      <header className="ad-header">
+        <a className="ad-header__brand" href="/" aria-label="Rock Solid Leveling home">
+          <img src={headerLogo} alt="Rock Solid Leveling" />
+        </a>
+        <a
+          className="ad-header__phone"
+          href={contactDetails.phoneHref}
+          onClick={() =>
+            captureEvent("phone_number_clicked", {
+              location: "free_estimate_header",
+              page_path: freeEstimatePath
+            })
+          }
+        >
+          {contactDetails.phoneDisplay}
+        </a>
+      </header>
+
+      <main>
+        <section className="ad-hero">
+          <div className="ad-hero__copy" data-reveal>
+            <p className="ad-eyebrow">Free Omaha concrete leveling estimate</p>
+            <h1>Don&apos;t Pay to Replace Sunken Concrete.</h1>
+            <p className="ad-hero__lede">
+              Rock Solid Leveling provides concrete leveling in Omaha for sidewalks,
+              driveways, patios, steps, and garage approaches, often for 50-70%
+              less than replacement.
+            </p>
+            <div className="ad-hero__actions">
+              <a
+                className="button button--primary"
+                href="#free-estimate-form"
+                onClick={() =>
+                  captureEvent("cta_clicked", {
+                    label: "Get My Free Estimate",
+                    location: "free_estimate_hero",
+                    page_path: freeEstimatePath
+                  })
+                }
+              >
+                Get My Free Estimate
+              </a>
+              <a
+                className="button button--secondary"
+                href={contactDetails.phoneHref}
+                onClick={() =>
+                  captureEvent("phone_number_clicked", {
+                    location: "free_estimate_hero",
+                    page_path: freeEstimatePath
+                  })
+                }
+              >
+                Call {contactDetails.phoneDisplay}
+              </a>
+            </div>
+            <ul className="ad-trust-list" aria-label="Trust points">
+              {adTrustPoints.map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="ad-hero__media" data-reveal>
+            <div className="ad-comparison" aria-label="Sidewalk before and after concrete leveling">
+              <figure>
+                <img
+                  src={beforeImage}
+                  alt="Uneven sidewalk concrete before leveling"
+                  fetchPriority="high"
+                />
+                <figcaption>Before</figcaption>
+              </figure>
+              <figure>
+                <img
+                  src={afterImage}
+                  alt="Sidewalk concrete after leveling"
+                  fetchPriority="high"
+                />
+                <figcaption>After</figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        <section className="ad-form-band" id="free-estimate-form">
+          <div className="ad-form-card" data-reveal>
+            <div className="ad-form-card__header">
+              <h2>Get My Free Estimate</h2>
+              <p>Name, phone, address, ZIP, concrete types, optional square footage, and photos if you have them.</p>
+            </div>
+            <QuoteForm
+              variant="ad"
+              submissionSource="meta_ad_landing_page"
+              submitLabel="Get My Free Estimate"
+              successMessage="Thanks. Your free estimate request was sent successfully."
+            />
+          </div>
+        </section>
+
+        <section className="ad-section ad-section--dark" id="results">
+          <div className="ad-section__heading" data-reveal>
+            <h2>Before and After Results</h2>
+            <p>See the same sidewalk repair style featured in the ads.</p>
+          </div>
+          <BeforeAfterSlider />
+          <div className="ad-result-grid">
+            {adResultCards.map((card) => (
+              <article className="ad-result-card" key={card.title} data-reveal>
+                <h3>{card.title}</h3>
+                <p>{card.copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="ad-section">
+          <div className="ad-section__heading" data-reveal>
+            <h2>How It Works</h2>
+          </div>
+          <div className="ad-steps">
+            {processSteps.map((step) => (
+              <article className="ad-step" key={step.number} data-reveal>
+                <span>{step.number}</span>
+                <h3>{step.title}</h3>
+                <p>{step.copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {showGoogleReviews ? (
+          <section className="ad-section ad-reviews" id="reviews">
+            <div className="ad-section__heading" data-reveal>
+              <h2>Customer Reviews</h2>
+              <p>Current feedback from the Rock Solid Leveling Google profile.</p>
+            </div>
+            <GoogleReviewsCarousel />
+          </section>
+        ) : null}
+
+        <section className="ad-section ad-faq" id="faq">
+          <div className="ad-section__heading" data-reveal>
+            <h2>Frequently Asked Questions</h2>
+          </div>
+          <div className="faq-list">
+            {faqs.map((faq) => (
+              <div key={faq.question} data-reveal>
+                <FaqItem question={faq.question} answer={faq.answer} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <div className="ad-sticky-cta" aria-label="Free estimate actions">
+        <a
+          className="button button--primary"
+          href="#free-estimate-form"
+          onClick={() =>
+            captureEvent("cta_clicked", {
+              label: "Get My Free Estimate",
+              location: "free_estimate_sticky",
+              page_path: freeEstimatePath
+            })
+          }
+        >
+          Get Estimate
+        </a>
+        <a
+          className="button button--secondary"
+          href={contactDetails.phoneHref}
+          onClick={() =>
+            captureEvent("phone_number_clicked", {
+              location: "free_estimate_sticky",
+              page_path: freeEstimatePath
+            })
+          }
+        >
+          Call
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const { showGoogleReviews } = useSiteConfig();
+  const isFreeEstimatePage = getCurrentPath().replace(/\/$/, "") === freeEstimatePath;
   const visibleNavLinks = showGoogleReviews
     ? navLinks
     : navLinks.filter((link) => link.href !== "#reviews");
@@ -872,6 +1719,10 @@ function App() {
     trackMetaPixelViewContent(getMetaViewContentEventId());
     sendMetaViewContent();
   }, []);
+
+  if (isFreeEstimatePage) {
+    return <FreeEstimatePage showGoogleReviews={showGoogleReviews} />;
+  }
 
   return (
     <div className="site-shell">
