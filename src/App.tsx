@@ -953,6 +953,8 @@ function AddressAutocompleteInput({
 }) {
   const listboxId = useId();
   const inputId = useId();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedAddressRef = useRef("");
   const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -962,7 +964,13 @@ function AddressAutocompleteInput({
   const canAutocomplete = Boolean(mapboxAccessToken);
 
   useEffect(() => {
-    if (!canAutocomplete || address.trim().length < 3) {
+    const trimmedAddress = address.trim();
+
+    if (
+      !canAutocomplete ||
+      trimmedAddress.length < 3 ||
+      trimmedAddress === selectedAddressRef.current
+    ) {
       setSuggestions([]);
       setIsOpen(false);
       return;
@@ -972,7 +980,7 @@ function AddressAutocompleteInput({
     const debounceTimer = window.setTimeout(() => {
       const loadSuggestions = async () => {
         const suggestUrl = new URL("https://api.mapbox.com/search/searchbox/v1/suggest");
-        suggestUrl.searchParams.set("q", address.trim());
+        suggestUrl.searchParams.set("q", trimmedAddress);
         suggestUrl.searchParams.set("access_token", mapboxAccessToken);
         suggestUrl.searchParams.set("session_token", sessionToken);
         suggestUrl.searchParams.set("country", "US");
@@ -1025,6 +1033,7 @@ function AddressAutocompleteInput({
     const fallbackAddress = suggestion.address || suggestion.name || formatMapboxSuggestion(suggestion);
     const fallbackZip = suggestion.context?.postcode?.name || zipCode;
 
+    selectedAddressRef.current = fallbackAddress.trim();
     setIsOpen(false);
     setSuggestions([]);
     onAddressChange(fallbackAddress);
@@ -1054,6 +1063,7 @@ function AddressAutocompleteInput({
       const retrievedAddress = properties?.address || properties?.name || fallbackAddress;
       const retrievedZip = properties?.context?.postcode?.name || fallbackZip;
 
+      selectedAddressRef.current = retrievedAddress.trim();
       onAddressChange(retrievedAddress);
       if (retrievedZip) {
         onZipCodeChange(retrievedZip);
@@ -1103,7 +1113,16 @@ function AddressAutocompleteInput({
   };
 
   return (
-    <div className="quote-form__autocomplete">
+    <div
+      className="quote-form__autocomplete"
+      ref={containerRef}
+      onBlur={(event) => {
+        if (!containerRef.current?.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+          setActiveIndex(-1);
+        }
+      }}
+    >
       <label htmlFor={inputId}>Service Address</label>
       <input
         id={inputId}
@@ -1123,6 +1142,9 @@ function AddressAutocompleteInput({
             : undefined
         }
         onChange={(event) => onAddressChange(event.target.value)}
+        onInput={() => {
+          selectedAddressRef.current = "";
+        }}
         onFocus={() => {
           if (suggestions.length > 0) {
             setIsOpen(true);
