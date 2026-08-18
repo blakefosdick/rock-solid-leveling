@@ -8,6 +8,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: "index.html",
+        freeEstimate: "free-estimate.html",
         design: "design.html"
       }
     }

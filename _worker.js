@@ -3,6 +3,11 @@ export default {
     try {
       const url = new URL(request.url);
 
+      if (request.method === "GET" && url.pathname === "/free-estimate/") {
+        url.pathname = "/free-estimate";
+        return Response.redirect(url.toString(), 308);
+      }
+
       if (request.method === "GET" && url.pathname === "/site-config") {
         return json(
           {
@@ -66,6 +71,12 @@ export default {
       }
 
       if (env?.ASSETS?.fetch) {
+        if (request.method === "GET" && url.pathname === "/free-estimate") {
+          const assetUrl = new URL(request.url);
+          assetUrl.pathname = "/free-estimate.html";
+          return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+        }
+
         return await env.ASSETS.fetch(request);
       }
 
