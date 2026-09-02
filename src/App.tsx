@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import "./app.css";
 import heroLogo from "../images/logos/LogoSquareTextandImagepng.png";
 import headerLogo from "../images/logos/TextandSlabsHorizontal.png";
@@ -260,6 +260,21 @@ const googleReviewFallbackCards: GoogleReviewCard[] = [
       "Past customers can use the same Google profile to leave a review after their driveway, walkway, patio, or slab repair."
   }
 ];
+
+const reviewPreviewCharacterLimit = 260;
+
+const createReviewPreview = (comment: string) => {
+  if (comment.length <= reviewPreviewCharacterLimit) {
+    return comment;
+  }
+
+  const wordBoundary = comment.lastIndexOf(" ", reviewPreviewCharacterLimit);
+  const previewEnd = wordBoundary > reviewPreviewCharacterLimit * 0.7
+    ? wordBoundary
+    : reviewPreviewCharacterLimit;
+
+  return `${comment.slice(0, previewEnd).trim()}...`;
+};
 
 const createSubmissionId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -716,6 +731,9 @@ function BeforeAfterSlider() {
 function GoogleReviewsCarousel() {
   const [reviews, setReviews] = useState<GoogleReviewCard[]>(googleReviewFallbackCards);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [slideDirection, setSlideDirection] = useState<"next" | "previous">("next");
+  const [transitionId, setTransitionId] = useState(0);
+  const [expandedReviewIds, setExpandedReviewIds] = useState<Set<string>>(() => new Set());
   const starSlots = [1, 2, 3, 4, 5];
 
   useEffect(() => {
@@ -752,16 +770,47 @@ function GoogleReviewsCarousel() {
     (_, offset) => reviews[(activeIndex + offset) % reviews.length]
   );
 
+  const showReviewAtIndex = (nextIndex: number) => {
+    if (nextIndex === activeIndex) {
+      return;
+    }
+
+    const forwardDistance = (nextIndex - activeIndex + reviews.length) % reviews.length;
+    const backwardDistance = (activeIndex - nextIndex + reviews.length) % reviews.length;
+
+    setSlideDirection(forwardDistance <= backwardDistance ? "next" : "previous");
+    setActiveIndex(nextIndex);
+    setTransitionId((currentId) => currentId + 1);
+  };
+
   const showPreviousReview = () => {
+    setSlideDirection("previous");
     setActiveIndex((currentIndex) =>
       currentIndex === 0 ? reviews.length - 1 : currentIndex - 1
     );
+    setTransitionId((currentId) => currentId + 1);
   };
 
   const showNextReview = () => {
+    setSlideDirection("next");
     setActiveIndex((currentIndex) =>
       currentIndex === reviews.length - 1 ? 0 : currentIndex + 1
     );
+    setTransitionId((currentId) => currentId + 1);
+  };
+
+  const toggleExpandedReview = (reviewId: string) => {
+    setExpandedReviewIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      if (nextIds.has(reviewId)) {
+        nextIds.delete(reviewId);
+      } else {
+        nextIds.add(reviewId);
+      }
+
+      return nextIds;
+    });
   };
 
   return (
@@ -775,9 +824,24 @@ function GoogleReviewsCarousel() {
         <span aria-hidden="true" />
       </button>
 
-      <div className="reviews-carousel__viewport" aria-live="polite">
-        {visibleReviews.map((review) => (
-          <article className="reviews-carousel__card" key={review.id}>
+      <div
+        className={`reviews-carousel__viewport reviews-carousel__viewport--${slideDirection}`}
+        aria-live="polite"
+        key={transitionId}
+      >
+        {visibleReviews.map((review, index) => {
+          const canExpand = review.comment.length > reviewPreviewCharacterLimit;
+          const isExpanded = expandedReviewIds.has(review.id);
+          const displayedComment = canExpand && !isExpanded
+            ? createReviewPreview(review.comment)
+            : review.comment;
+
+          return (
+          <article
+            className={`reviews-carousel__card${isExpanded ? " is-expanded" : ""}`}
+            key={review.id}
+            style={{ "--review-card-index": index } as CSSProperties}
+          >
             <div className="reviews-carousel__header">
               {review.profilePhotoUrl ? (
                 <img
@@ -798,7 +862,19 @@ function GoogleReviewsCarousel() {
               </div>
             </div>
 
-            <p className="reviews-carousel__quote">{review.comment}</p>
+            <p className="reviews-carousel__quote">{displayedComment}</p>
+
+            {canExpand ? (
+              <button
+                className="reviews-carousel__read-more"
+                type="button"
+                aria-expanded={isExpanded}
+                aria-label={`${isExpanded ? "Collapse" : "Expand"} review from ${review.authorName}`}
+                onClick={() => toggleExpandedReview(review.id)}
+              >
+                {isExpanded ? "Show less" : "Read more"}
+              </button>
+            ) : null}
 
             <div className="reviews-carousel__footer">
               <div
@@ -824,7 +900,8 @@ function GoogleReviewsCarousel() {
               </a>
             </div>
           </article>
-        ))}
+          );
+        })}
       </div>
 
       <button
@@ -846,7 +923,7 @@ function GoogleReviewsCarousel() {
               aria-label={`Show reviews starting with ${review.authorName}`}
               aria-selected={index === activeIndex}
               className={index === activeIndex ? "is-active" : ""}
-              onClick={() => setActiveIndex(index)}
+              onClick={() => showReviewAtIndex(index)}
             />
           ))}
         </div>

@@ -56,13 +56,17 @@ export default {
         return json({
           success: true,
           runtime: "worker",
+          showGoogleReviews: isEnabled(env.GOOGLE_REVIEWS_ENABLED),
           hasGoogleClientId: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID),
           hasGoogleClientSecret: Boolean(env.GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET),
           hasGoogleRefreshToken: Boolean(env.GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN),
           hasGoogleLocationName: Boolean(getConfiguredGoogleLocationName(env)),
           hasGoogleAccountId: Boolean(env.GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID),
           hasGoogleLocationId: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID),
-          canDiscoverGoogleAccount: Boolean(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID)
+          hasGooglePlaceId: Boolean(env.GOOGLE_BUSINESS_PROFILE_PLACE_ID),
+          canDiscoverGoogleAccount: Boolean(
+            env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID || env.GOOGLE_BUSINESS_PROFILE_PLACE_ID
+          )
         });
       }
 
@@ -107,8 +111,10 @@ async function handleGoogleReviews(env) {
     "GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN"
   ].filter((key) => !env[key]);
 
-  if (!getConfiguredGoogleLocationName(env) && !env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID) {
-    missingConfig.push("GOOGLE_BUSINESS_PROFILE_LOCATION_NAME or GOOGLE_BUSINESS_PROFILE_LOCATION_ID");
+  if (!getConfiguredGoogleLocationName(env) && !env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID && !env.GOOGLE_BUSINESS_PROFILE_PLACE_ID) {
+    missingConfig.push(
+      "GOOGLE_BUSINESS_PROFILE_LOCATION_NAME, GOOGLE_BUSINESS_PROFILE_LOCATION_ID, or GOOGLE_BUSINESS_PROFILE_PLACE_ID"
+    );
   }
 
   if (missingConfig.length > 0) {
@@ -127,11 +133,12 @@ async function handleGoogleReviews(env) {
     const locationName = getConfiguredGoogleLocationName(env) || await discoverGoogleLocationName(env, accessToken);
 
     if (!locationName) {
+      const targetDetail = getGoogleReviewTargetSummary(env);
       return json(
         {
           success: false,
           message: "Google Business Profile location could not be resolved.",
-          detail: "The OAuth account can list accounts, but none of its locations matched GOOGLE_BUSINESS_PROFILE_LOCATION_ID."
+          detail: `The OAuth account can list accounts, but none of its locations matched ${targetDetail}.`
         },
         404
       );
@@ -153,7 +160,7 @@ async function handleGoogleReviews(env) {
         {
           success: false,
           message: "Google reviews request failed.",
-          detail: await reviewsResponse.text()
+          detail: await readLimitedResponseText(reviewsResponse)
         },
         502
       );
@@ -200,7 +207,7 @@ async function getGoogleAccessToken(env) {
   });
 
   if (!tokenResponse.ok) {
-    throw new Error(`Google token refresh failed: ${await tokenResponse.text()}`);
+    throw new Error(`Google token refresh failed: ${await readLimitedResponseText(tokenResponse)}`);
   }
 
   const tokenPayload = await tokenResponse.json();
@@ -230,8 +237,9 @@ function getConfiguredGoogleLocationName(env) {
 
 async function discoverGoogleLocationName(env, accessToken) {
   const targetLocationId = String(env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID || "").trim();
+  const targetPlaceId = String(env.GOOGLE_BUSINESS_PROFILE_PLACE_ID || "").trim();
 
-  if (!targetLocationId) {
+  if (!targetLocationId && !targetPlaceId) {
     return "";
   }
 
@@ -244,13 +252,18 @@ async function discoverGoogleLocationName(env, accessToken) {
     }
 
     const locations = await listGoogleLocations(accountName, accessToken);
-    const matchedLocation = locations.find((location) => {
-      const locationName = String(location?.name || "").trim();
-      return extractGoogleResourceId(locationName) === targetLocationId;
-    });
+    const matchedLocation = locations.find((location) =>
+      googleLocationMatchesConfiguredTarget(location, {
+        locationId: targetLocationId,
+        placeId: targetPlaceId
+      })
+    );
 
     if (matchedLocation) {
-      return `${accountName}/locations/${targetLocationId}`;
+      const matchedLocationId = extractGoogleResourceId(matchedLocation.name);
+      if (matchedLocationId) {
+        return `${accountName}/locations/${matchedLocationId}`;
+      }
     }
   }
 
@@ -276,7 +289,7 @@ async function listGoogleAccounts(accessToken) {
     });
 
     if (!response.ok) {
-      throw new Error(`Google accounts request failed: ${await response.text()}`);
+      throw new Error(`Google accounts request failed: ${await readLimitedResponseText(response)}`);
     }
 
     const payload = await response.json();
@@ -294,7 +307,7 @@ async function listGoogleLocations(accountName, accessToken) {
   do {
     const locationsUrl = new URL(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`);
     locationsUrl.searchParams.set("pageSize", "100");
-    locationsUrl.searchParams.set("readMask", "name,title");
+    locationsUrl.searchParams.set("readMask", "name,title,metadata");
     if (pageToken) {
       locationsUrl.searchParams.set("pageToken", pageToken);
     }
@@ -307,7 +320,7 @@ async function listGoogleLocations(accountName, accessToken) {
     });
 
     if (!response.ok) {
-      throw new Error(`Google locations request failed for ${accountName}: ${await response.text()}`);
+      throw new Error(`Google locations request failed for ${accountName}: ${await readLimitedResponseText(response)}`);
     }
 
     const payload = await response.json();
@@ -318,9 +331,44 @@ async function listGoogleLocations(accountName, accessToken) {
   return locations;
 }
 
+function googleLocationMatchesConfiguredTarget(location, target) {
+  const locationId = normalizeGoogleIdentifier(target.locationId);
+  const placeId = normalizeGoogleIdentifier(target.placeId);
+  const locationName = String(location?.name || "").trim();
+  const metadataPlaceId = String(location?.metadata?.placeId || "").trim();
+
+  if (locationId && normalizeGoogleIdentifier(extractGoogleResourceId(locationName)) === locationId) {
+    return true;
+  }
+
+  if (locationId && normalizeGoogleIdentifier(locationName) === locationId) {
+    return true;
+  }
+
+  return Boolean(placeId && normalizeGoogleIdentifier(metadataPlaceId) === placeId);
+}
+
+function getGoogleReviewTargetSummary(env) {
+  const targets = [];
+
+  if (env.GOOGLE_BUSINESS_PROFILE_LOCATION_ID) {
+    targets.push("GOOGLE_BUSINESS_PROFILE_LOCATION_ID");
+  }
+
+  if (env.GOOGLE_BUSINESS_PROFILE_PLACE_ID) {
+    targets.push("GOOGLE_BUSINESS_PROFILE_PLACE_ID");
+  }
+
+  return targets.join(" or ") || "the configured Google location target";
+}
+
 function extractGoogleResourceId(resourceName) {
   const segments = String(resourceName || "").split("/").filter(Boolean);
   return segments[segments.length - 1] || "";
+}
+
+function normalizeGoogleIdentifier(value) {
+  return String(value || "").trim().replace(/^\/+|\/+$/g, "").toLowerCase();
 }
 
 function normalizeGoogleReview(review) {
@@ -935,6 +983,33 @@ async function handleQuoteSubmission(request, env, ctx) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return json({ success: false, message: "Unhandled worker error.", detail }, 500);
+  }
+}
+
+async function readLimitedResponseText(response, maxLength = 4000) {
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+
+  try {
+    while (text.length < maxLength) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return text + decoder.decode();
+      }
+
+      text += decoder.decode(value, { stream: true });
+    }
+
+    await reader.cancel();
+    return `${text.slice(0, maxLength)}...`;
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    return error instanceof Error ? error.message : String(error);
   }
 }
 

@@ -140,7 +140,7 @@ The reviews section is controlled by a runtime Worker var:
 - `GOOGLE_REVIEWS_ENABLED=false` hides the reviews section and its nav/footer links.
 - `GOOGLE_REVIEWS_ENABLED=true` shows the reviews section and loads the carousel.
 
-Keep this set to `false` until Google approves Business Profile API access. After approval, set it to `true`, run `npm run build`, and deploy with `npx wrangler deploy`.
+Now that Google has approved Business Profile API access, keep this set to `true`, make sure the Google OAuth secrets are configured in Cloudflare, run `npm run build`, and deploy with `npx wrangler deploy`.
 
 When enabled, the customer reviews carousel calls the Worker endpoint:
 
@@ -154,13 +154,17 @@ Required Google configuration:
 - `GOOGLE_BUSINESS_PROFILE_CLIENT_ID` (secret)
 - `GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET` (secret)
 - `GOOGLE_BUSINESS_PROFILE_REFRESH_TOKEN` (secret)
-- `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` (var; this can be the Business Profile ID shown in Google Business Profile settings)
+- `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` (var; internal Business Profile location ID)
 
 If you know the full location resource name, you can set this instead of relying on discovery:
 
 - `GOOGLE_BUSINESS_PROFILE_LOCATION_NAME` (var, format: `accounts/YOUR_ACCOUNT_ID/locations/YOUR_LOCATION_ID`)
 
-If only `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` is set, the Worker uses the OAuth token to list accessible Google Business Profile accounts and locations, then resolves the matching `accounts/.../locations/...` path automatically.
+If you have the public Google Maps place ID instead of the internal location ID, set this non-secret var:
+
+- `GOOGLE_BUSINESS_PROFILE_PLACE_ID` (var, format usually starts with `ChIJ...`)
+
+If only `GOOGLE_BUSINESS_PROFILE_LOCATION_ID` or `GOOGLE_BUSINESS_PROFILE_PLACE_ID` is set, the Worker uses the OAuth token to list accessible Google Business Profile accounts and locations, then resolves the matching `accounts/.../locations/...` path automatically.
 
 The OAuth refresh token must be generated once with the Google account that owns or manages the Business Profile, using the `https://www.googleapis.com/auth/business.manage` scope.
 
@@ -169,6 +173,12 @@ Useful diagnostic endpoint after deploy:
 - `GET /google-reviews-config`
 
 It returns booleans for required settings without exposing secret values.
+
+For the live feed itself, check:
+
+- `GET /google-reviews`
+
+If configuration or authorization is wrong, this returns a JSON error with the missing binding/var or the Google API failure detail.
 
 ## Production build
 

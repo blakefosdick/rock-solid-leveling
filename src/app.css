@@ -534,6 +534,7 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+  overflow: visible;
 }
 
 .reviews-carousel__card {
@@ -546,6 +547,43 @@ button {
   border-radius: 0.45rem;
   background: #ffffff;
   box-shadow: 0 3px 12px rgba(18, 23, 38, 0.12);
+  animation-duration: 360ms;
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-delay: calc(var(--review-card-index, 0) * 45ms);
+  will-change: transform, opacity;
+}
+
+.reviews-carousel__viewport--next .reviews-carousel__card {
+  animation-name: reviewCardSlideInNext;
+}
+
+.reviews-carousel__viewport--previous .reviews-carousel__card {
+  animation-name: reviewCardSlideInPrevious;
+}
+
+@keyframes reviewCardSlideInNext {
+  from {
+    opacity: 0;
+    transform: translateX(1.35rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes reviewCardSlideInPrevious {
+  from {
+    opacity: 0;
+    transform: translateX(-1.35rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 
 .reviews-carousel__header {
@@ -590,6 +628,27 @@ button {
   font-size: clamp(1rem, 1.4vw, 1.18rem);
   font-weight: 600;
   line-height: 1.52;
+}
+
+.reviews-carousel__read-more {
+  align-self: flex-start;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--blue);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.reviews-carousel__read-more:hover {
+  color: var(--teal);
+  transform: none;
 }
 
 .reviews-carousel__footer {
@@ -713,14 +772,20 @@ button {
   border-radius: 999px;
   background: rgba(18, 23, 38, 0.22);
   box-shadow: none;
+  transition:
+    width 220ms ease,
+    background 220ms ease,
+    transform 220ms ease;
 }
 
 .reviews-carousel__dots button.is-active {
+  width: 1.35rem;
   background: rgba(18, 23, 38, 0.7);
 }
 
 .reviews-carousel__arrow:focus-visible,
 .reviews-carousel__dots button:focus-visible,
+.reviews-carousel__read-more:focus-visible,
 .reviews-carousel__google-mark:focus-visible {
   outline: 3px solid rgba(20, 83, 229, 0.18);
   outline-offset: 3px;
@@ -811,6 +876,14 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .reviews-carousel__card {
+    animation: none;
+  }
+
+  .reviews-carousel__dots button {
+    transition: none;
+  }
+
   .faq-item__icon,
   .faq-item__panel {
     transition: none;
