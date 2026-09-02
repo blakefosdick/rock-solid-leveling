@@ -8,11 +8,11 @@
   },
   "vars": {
     "QUOTE_NOTIFICATION_EMAILS": "blake@rocksolidleveling.com",
-    "GOOGLE_REVIEWS_ENABLED": "false",
+    "GOOGLE_REVIEWS_ENABLED": "true",
     "GOOGLE_BUSINESS_PROFILE_LOCATION_ID": "6200519932882973401",
     "META_CAPI_GRAPH_VERSION": "v25.0",
     "META_PIXEL_ID": "1427725189200896",
-    "META_TEST_EVENT_CODE": "TEST12345" // optional, remove after testing
+    //"META_TEST_EVENT_CODE": "TEST12345" // optional, remove after testing
     // Meta Conversions API:
     // Set META_PIXEL_ID as a Cloudflare Worker var.
     // Store META_CAPI_ACCESS_TOKEN as a Wrangler/Cloudflare secret.
@@ -22,6 +22,8 @@
     // or:
     // "GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID": "YOUR_ACCOUNT_ID",
     // "GOOGLE_BUSINESS_PROFILE_LOCATION_ID": "YOUR_LOCATION_ID"
+    // You can also match discovery by the public Google Maps place ID:
+    // "GOOGLE_BUSINESS_PROFILE_PLACE_ID": "ChIJ..."
     //
     // Store GOOGLE_BUSINESS_PROFILE_CLIENT_ID,
     // GOOGLE_BUSINESS_PROFILE_CLIENT_SECRET, and
