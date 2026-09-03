@@ -22,6 +22,7 @@ import {
 const beforeImage = "./media/before.jpg";
 const afterImage = "./media/after.jpg";
 const freeEstimatePath = "/free-estimate";
+const areasServedPath = "/areas-served";
 
 const navLinks = [
   { href: "#services", label: "Services" },
@@ -99,6 +100,42 @@ const adResultCards = [
   }
 ];
 
+const primaryServiceAreas = [
+  "Omaha",
+  "Elkhorn",
+  "Millard",
+  "Bennington",
+  "Boys Town",
+  "Ralston",
+  "La Vista",
+  "Papillion",
+  "Bellevue",
+  "Gretna",
+  "Waterloo",
+  "Valley"
+];
+
+const nearbyServiceAreas = [
+  "Council Bluffs, IA",
+  "Carter Lake, IA",
+  "Springfield",
+  "Blair",
+  "Plattsmouth",
+  "Ashland",
+  "Fremont"
+];
+
+const areaServiceTypes = [
+  "Driveway leveling",
+  "Driveway caulking",
+  "Sidewalk and walkway leveling",
+  "Patio and stoop lifting",
+  "Expansion joints",
+  "Garage approach repair",
+  "Garage floor leveling",
+  "Trip hazard removal"
+];
+
 const faqs = [
   {
     question: "What is the benefit of grout-based pumping?",
@@ -129,6 +166,7 @@ const faqs = [
 
 const footerLinks = [
   { href: "#services", label: "Services" },
+  { href: areasServedPath, label: "Areas Served" },
   { href: "#process", label: "Our Process" },
   { href: "#results", label: "Before & After" },
   { href: "#reviews", label: "Reviews" },
@@ -143,7 +181,13 @@ const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ?? ""
 const googleReviewsUrl = "https://maps.app.goo.gl/13pJzDvta4psNmd76?g_st=ac";
 const siteUrl = "https://rocksolidleveling.com";
 const freeEstimateUrl = `${siteUrl}${freeEstimatePath}`;
+const areasServedUrl = `${siteUrl}${areasServedPath}`;
 const omahaProximity = "-95.9345,41.2565";
+
+const serviceAreaSchema = [...primaryServiceAreas, ...nearbyServiceAreas].map((area) => ({
+  "@type": "City",
+  name: area.includes(",") ? area : `${area}, Nebraska`
+}));
 
 const freeEstimateStructuredData = {
   "@context": "https://schema.org",
@@ -156,11 +200,11 @@ const freeEstimateStructuredData = {
       url: siteUrl,
       telephone: "+1-402-682-8151",
       email: "info@rocksolidleveling.com",
-      areaServed: ["Omaha, Nebraska", "Nebraska"],
+      areaServed: serviceAreaSchema,
       makesOffer: {
         "@type": "Offer",
         name: "Free concrete leveling estimate",
-        areaServed: "Omaha, Nebraska",
+        areaServed: serviceAreaSchema,
         itemOffered: {
           "@type": "Service",
           name: "Concrete leveling",
@@ -178,6 +222,50 @@ const freeEstimateStructuredData = {
           text: faq.answer
         }
       }))
+    }
+  ]
+};
+
+const areasServedStructuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "HomeAndConstructionBusiness",
+      "@id": `${siteUrl}/#business`,
+      name: "Rock Solid Leveling",
+      alternateName: "R&B Concrete Leveling and Repair",
+      url: siteUrl,
+      telephone: "+1-402-682-8151",
+      email: "info@rocksolidleveling.com",
+      image: `${siteUrl}/og-image.svg`,
+      priceRange: "$$",
+      areaServed: serviceAreaSchema,
+      makesOffer: {
+        "@type": "Offer",
+        name: "Concrete leveling and lifting",
+        areaServed: serviceAreaSchema,
+        itemOffered: {
+          "@type": "Service",
+          name: "Concrete leveling",
+          serviceType: "Driveway, sidewalk, patio, steps, garage approach, and garage floor leveling"
+        }
+      }
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${areasServedUrl}#webpage`,
+      url: areasServedUrl,
+      name: "Concrete Leveling Areas Served | Rock Solid Leveling",
+      description:
+        "Rock Solid Leveling serves Omaha and nearby communities with grout-based concrete leveling for driveways, sidewalks, patios, steps, and garage approaches.",
+      isPartOf: {
+        "@type": "WebSite",
+        name: "Rock Solid Leveling",
+        url: siteUrl
+      },
+      about: {
+        "@id": `${siteUrl}/#business`
+      }
     }
   ]
 };
@@ -1801,9 +1889,267 @@ function FreeEstimatePage({ showGoogleReviews }: { showGoogleReviews: boolean })
   );
 }
 
+function AreasServedTeaser() {
+  const featuredAreas = [
+    "Omaha",
+    "Elkhorn",
+    "Millard",
+    "Bennington",
+    "Ralston",
+    "La Vista",
+    "Papillion",
+    "Gretna"
+  ];
+
+  return (
+    <section className="section areas-teaser" id="areas-served">
+      <div className="areas-teaser__copy" data-reveal>
+        <p className="section-kicker">Areas served</p>
+        <h2>Concrete Leveling Across Omaha and Nearby Communities</h2>
+        <p>
+          Rock Solid Leveling serves homeowners and businesses throughout the
+          Omaha metro with grout-based concrete lifting for sidewalks, driveways,
+          patios, steps, garage floors, and approaches.
+        </p>
+        <a
+          className="button button--secondary"
+          href={areasServedPath}
+          onClick={() =>
+            captureEvent("cta_clicked", {
+              label: "View Areas Served",
+              location: "homepage_areas_served"
+            })
+          }
+        >
+          View Areas Served
+        </a>
+      </div>
+
+      <div className="areas-teaser__panel" data-reveal>
+        <h3>Common service areas</h3>
+        <ul className="area-chip-list" aria-label="Common service areas">
+          {featuredAreas.map((area) => (
+            <li key={area}>{area}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function AreasServedPage({ showGoogleReviews }: { showGoogleReviews: boolean }) {
+  const visibleNavLinks = showGoogleReviews
+    ? navLinks
+    : navLinks.filter((link) => link.href !== "#reviews");
+  const visibleFooterLinks = showGoogleReviews
+    ? footerLinks
+    : footerLinks.filter((link) => link.href !== "#reviews");
+  const pageNavLinks = visibleNavLinks.map((link) => ({
+    ...link,
+    href: `/${link.href}`
+  }));
+
+  usePageMetadata({
+    title: "Concrete Leveling Areas Served Near Omaha | Rock Solid Leveling",
+    description:
+      "Rock Solid Leveling provides concrete leveling in Omaha, Elkhorn, Millard, Papillion, Bellevue, Gretna, and nearby communities. Request a free estimate.",
+    canonicalUrl: areasServedUrl,
+    structuredData: areasServedStructuredData
+  });
+
+  return (
+    <div className="site-shell">
+      <header className="site-header">
+        <div className="site-header__inner">
+          <a href="/" className="site-header__brand" aria-label="Rock Solid Leveling home">
+            <img src={headerLogo} alt="Rock Solid Leveling" />
+          </a>
+
+          <nav className="site-nav" aria-label="Primary">
+            <ul>
+              {pageNavLinks.map((link) => (
+                <li key={link.href}>
+                  <a href={link.href}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <a
+            className="site-header__cta button button--primary button--small"
+            href="#estimate"
+            onClick={() => captureEvent("cta_clicked", { label: "Get A Free Quote", location: "areas_header" })}
+          >
+            Get A Free Quote
+          </a>
+        </div>
+      </header>
+
+      <main>
+        <section className="areas-hero section">
+          <div className="areas-hero__copy" data-reveal>
+            <p className="section-kicker">Omaha metro concrete leveling</p>
+            <h1>Areas Served by Rock Solid Leveling</h1>
+            <p>
+              We lift and level settled concrete in Omaha and nearby communities
+              using grout pumping that fills voids, supports the slab, and helps
+              avoid the cost and mess of replacement.
+            </p>
+            <div className="hero__actions">
+              <a
+                className="button button--primary"
+                href="#estimate"
+                onClick={() =>
+                  captureEvent("cta_clicked", {
+                    label: "Request Service Area Estimate",
+                    location: "areas_hero"
+                  })
+                }
+              >
+                Request a Free Estimate
+              </a>
+              <a
+                className="button button--secondary"
+                href={contactDetails.phoneHref}
+                onClick={() => captureEvent("phone_number_clicked", { location: "areas_hero" })}
+              >
+                Call {contactDetails.phoneDisplay}
+              </a>
+            </div>
+          </div>
+
+          <div className="areas-hero__panel" data-reveal>
+            <h2>Service area quick check</h2>
+            <p>
+              If your address is near the Omaha metro but not listed below, send
+              it with your photos and we will confirm availability.
+            </p>
+            <a href="#estimate">Check my address</a>
+          </div>
+        </section>
+
+        <section className="section areas-section">
+          <div className="section-heading section-heading--center" data-reveal>
+            <h2>Primary Service Area</h2>
+            <p>
+              These are the main Omaha-area communities featured for concrete
+              leveling, lifting, and settled slab repair.
+            </p>
+          </div>
+
+          <ul className="areas-grid" aria-label="Primary service areas">
+            {primaryServiceAreas.map((area) => (
+              <li key={area} data-reveal>
+                <span>{area}</span>
+                <small>Concrete leveling and slab repair</small>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="section areas-section areas-section--split">
+          <div className="areas-copy-block" data-reveal>
+            <h2>Nearby Communities</h2>
+            <p>
+              We also review estimate requests from surrounding Nebraska and
+              western Iowa communities when scheduling and project scope make
+              sense.
+            </p>
+            <ul className="area-chip-list area-chip-list--quiet" aria-label="Nearby communities">
+              {nearbyServiceAreas.map((area) => (
+                <li key={area}>{area}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="areas-copy-block areas-copy-block--dark" data-reveal>
+            <h2>Services Available by Area</h2>
+            <ul className="areas-service-list">
+              {areaServiceTypes.map((service) => (
+                <li key={service}>{service}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section className="section estimate-section" id="estimate">
+          <div className="quote-card" data-reveal>
+            <div className="quote-card__header">
+              <h2>Request a Service Area Estimate</h2>
+              <p>Send your address, concrete type, and photos if you have them.</p>
+            </div>
+            <QuoteForm submissionSource="areas_served_page" />
+          </div>
+        </section>
+      </main>
+
+      <footer className="site-footer">
+        <div className="site-footer__inner">
+          <div className="site-footer__brand">
+            <div className="site-footer__logo-card">
+              <img
+                className="site-footer__logo-image"
+                src={footerLogo}
+                alt="Rock Solid Leveling with Omaha address and website"
+              />
+            </div>
+            <p>
+              Proudly serving Omaha and surrounding areas with professional,
+              reliable, and cost-effective concrete lifting solutions.
+            </p>
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Quick Links</h3>
+            <ul>
+              {visibleFooterLinks.map((link) => (
+                <li key={link.href}>
+                  <a href={link.href.startsWith("#") ? `/${link.href}` : link.href}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Contact Us</h3>
+            <ul>
+              <li>{contactDetails.city}</li>
+              <li>
+                <a
+                  href={contactDetails.phoneHref}
+                  onClick={() => captureEvent("phone_number_clicked", { location: "areas_footer" })}
+                >
+                  {contactDetails.phoneDisplay}
+                </a>
+              </li>
+              <li>
+                <a
+                  href={contactDetails.emailHref}
+                  onClick={() => captureEvent("email_clicked", { location: "areas_footer" })}
+                >
+                  {contactDetails.email}
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="site-footer__bottom">
+          <p>&copy; 2026 Rock Solid Leveling. All Rights Reserved.</p>
+          <p className="site-footer__legacy">
+            Formerly R&amp;B Concrete Leveling and Repair
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 function App() {
   const { showGoogleReviews } = useSiteConfig();
-  const isFreeEstimatePage = getCurrentPath().replace(/\/$/, "") === freeEstimatePath;
+  const currentPath = getCurrentPath().replace(/\/$/, "") || "/";
+  const isFreeEstimatePage = currentPath === freeEstimatePath;
+  const isAreasServedPage = currentPath === areasServedPath;
   const visibleNavLinks = showGoogleReviews
     ? navLinks
     : navLinks.filter((link) => link.href !== "#reviews");
@@ -1821,6 +2167,10 @@ function App() {
 
   if (isFreeEstimatePage) {
     return <FreeEstimatePage showGoogleReviews={showGoogleReviews} />;
+  }
+
+  if (isAreasServedPage) {
+    return <AreasServedPage showGoogleReviews={showGoogleReviews} />;
   }
 
   return (
@@ -2000,6 +2350,8 @@ function App() {
             <QuoteForm />
           </div>
         </section>
+
+        <AreasServedTeaser />
       </main>
 
       <footer className="site-footer">

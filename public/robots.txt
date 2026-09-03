@@ -3,3 +3,4 @@ Allow: /
 Disallow: /design.html
 
 Sitemap: https://rocksolidleveling.com/sitemap.xml
+LLMs: https://rocksolidleveling.com/llms.txt

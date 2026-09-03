@@ -31,7 +31,7 @@ This checklist tracks implementation work to improve organic visibility for `roc
   - [ ] `/services/patio-leveling-omaha`
   - [ ] `/services/garage-floor-leveling-omaha`
 - [ ] Add an Omaha service hub page (for internal linking and topical clustering).
-- [ ] Add internal links from homepage sections to these dedicated pages.
+- [x] Add internal links from homepage sections to these dedicated pages.
 
 ### Definition of done
 - New pages are linked from nav/footer or contextual links.
@@ -61,7 +61,8 @@ This checklist tracks implementation work to improve organic visibility for `roc
 
 - [ ] Add case study/project pages with before/after photos.
 - [ ] Add customer review/testimonial section with schema where appropriate.
-- [ ] Add city/area pages for key service locations around Omaha.
+- [x] Add an areas served page for key service locations around Omaha.
+- [ ] Add city-specific pages for the highest-priority service locations around Omaha.
 - [ ] Align Google Business Profile services/categories with on-site service pages.
 - [ ] Ensure citation consistency across top local directories.
 

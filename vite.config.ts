@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         main: "index.html",
         freeEstimate: "free-estimate.html",
+        areasServed: "areas-served.html",
         design: "design.html"
       }
     }
