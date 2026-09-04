@@ -8,6 +8,11 @@ export default {
         return Response.redirect(url.toString(), 308);
       }
 
+      if (request.method === "GET" && url.pathname === "/areas-served/") {
+        url.pathname = "/areas-served";
+        return Response.redirect(url.toString(), 308);
+      }
+
       if (request.method === "GET" && url.pathname === "/site-config") {
         return json(
           {
@@ -78,6 +83,12 @@ export default {
         if (request.method === "GET" && url.pathname === "/free-estimate") {
           const assetUrl = new URL(request.url);
           assetUrl.pathname = "/free-estimate.html";
+          return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+        }
+
+        if (request.method === "GET" && url.pathname === "/areas-served") {
+          const assetUrl = new URL(request.url);
+          assetUrl.pathname = "/areas-served.html";
           return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
         }
 
