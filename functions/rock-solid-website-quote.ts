@@ -9,6 +9,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) =>
     hasSlabsFieldId: Boolean(env.HIGHLEVEL_SLABS_FIELD_ID),
     hasImagesFieldId: Boolean(env.HIGHLEVEL_IMAGES_FIELD_ID),
     hasNotesFieldId: Boolean(env.HIGHLEVEL_NOTES_FIELD_ID),
+    hasOpportunityPipelineId: Boolean(env.HIGHLEVEL_OPPORTUNITY_PIPELINE_ID || env.HIGHLEVEL_PIPELINE_ID),
+    hasOpportunityStageId: Boolean(env.HIGHLEVEL_OPPORTUNITY_STAGE_ID || env.HIGHLEVEL_PIPELINE_STAGE_ID),
     hasImagePublicBaseUrl: Boolean(env.IMAGE_PUBLIC_BASE_URL),
     hasQuoteNotificationEmail: Boolean(env.QUOTE_NOTIFICATION_EMAIL),
     hasQuoteNotificationRecipients: parseNotificationEmails(env.QUOTE_NOTIFICATION_EMAILS).length > 0
@@ -21,6 +23,11 @@ interface Env {
   HIGHLEVEL_SLABS_FIELD_ID: string;
   HIGHLEVEL_IMAGES_FIELD_ID: string;
   HIGHLEVEL_NOTES_FIELD_ID: string;
+  HIGHLEVEL_OPPORTUNITY_PIPELINE_ID?: string;
+  HIGHLEVEL_PIPELINE_ID?: string;
+  HIGHLEVEL_OPPORTUNITY_STAGE_ID?: string;
+  HIGHLEVEL_PIPELINE_STAGE_ID?: string;
+  HIGHLEVEL_DEFAULT_OPPORTUNITY_VALUE?: string;
   IMAGE_PUBLIC_BASE_URL: string;
   QUOTE_NOTIFICATION_EMAIL: SendEmail;
   QUOTE_NOTIFICATION_EMAILS: string;
@@ -50,6 +57,24 @@ type GhlJsonValue =
   | null
   | GhlJsonValue[]
   | { [key: string]: GhlJsonValue };
+
+type LeadAttribution = {
+  sourceLabel: string;
+  submitSource: string;
+  campaign: string;
+  pagePath: string;
+  pageUrl: string;
+  formTitle: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+  utm_id?: string;
+  fbclid?: string;
+  gclid?: string;
+  msclkid?: string;
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -84,6 +109,152 @@ const parseNotificationEmails = (value: string) =>
       .filter(Boolean)
   )];
 
+const highLevelTrackingParamNames = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "utm_id",
+  "fbclid",
+  "gclid",
+  "msclkid"
+] as const;
+
+const getLeadAttribution = (form: FormData, raw: Record<string, unknown>): LeadAttribution => {
+  const tracking: Partial<Record<(typeof highLevelTrackingParamNames)[number], string>> = {};
+
+  highLevelTrackingParamNames.forEach((key) => {
+    const value = getAttributionValue(form, raw, key);
+    if (value) {
+      tracking[key] = value;
+    }
+  });
+
+  const submitSource = getAttributionValue(form, raw, "submitSource") || getAttributionValue(form, raw, "webhookSource");
+  const sourceLabel = buildLeadSourceLabel(tracking, submitSource);
+
+  return {
+    ...tracking,
+    submitSource,
+    sourceLabel,
+    campaign: tracking.utm_campaign || "",
+    pagePath: getAttributionValue(form, raw, "pagePath") || getAttributionValue(form, raw, "path"),
+    pageUrl: getAttributionValue(form, raw, "pageUrl"),
+    formTitle: getAttributionValue(form, raw, "formTitle")
+  };
+};
+
+const getAttributionValue = (form: FormData, raw: Record<string, unknown>, key: string) => {
+  const formValue = String(form.get(key) || "").trim();
+  if (formValue) {
+    return truncateHighLevelText(formValue, 500);
+  }
+
+  const rawValue = readRawAttributionValue(raw, key);
+  return rawValue ? truncateHighLevelText(rawValue, 500) : "";
+};
+
+const readRawAttributionValue = (raw: Record<string, unknown>, key: string) => {
+  const directValue = raw[key];
+  if (typeof directValue === "string" && directValue.trim()) {
+    return directValue.trim();
+  }
+
+  const nestedSource = raw.attribution;
+  const nestedValue =
+    nestedSource && typeof nestedSource === "object" && !Array.isArray(nestedSource)
+      ? (nestedSource as Record<string, unknown>)[key]
+      : "";
+  return typeof nestedValue === "string" && nestedValue.trim() ? nestedValue.trim() : "";
+};
+
+const buildLeadSourceLabel = (
+  tracking: Partial<Record<(typeof highLevelTrackingParamNames)[number], string>>,
+  submitSource: string
+) => {
+  const utmSource = String(tracking.utm_source || "").trim();
+  const utmMedium = String(tracking.utm_medium || "").trim();
+
+  if (utmSource && utmMedium) {
+    return truncateHighLevelText(`${utmSource} / ${utmMedium}`, 250);
+  }
+
+  if (utmSource) {
+    return truncateHighLevelText(utmSource, 250);
+  }
+
+  if (submitSource) {
+    return truncateHighLevelText(humanizeAttributionValue(submitSource), 250);
+  }
+
+  return "rocksolidleveling.com";
+};
+
+const buildHighLevelTags = (attribution: LeadAttribution) => {
+  const tags = ["website quote form"];
+  const sourceTag = sanitizeHighLevelTag(attribution.sourceLabel);
+  const campaignTag = sanitizeHighLevelTag(attribution.campaign);
+
+  if (sourceTag) {
+    tags.push(`source ${sourceTag}`);
+  }
+
+  if (campaignTag) {
+    tags.push(`campaign ${campaignTag}`);
+  }
+
+  return [...new Set(tags)];
+};
+
+const sanitizeHighLevelTag = (value: string) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .slice(0, 60);
+
+const buildHighLevelNotes = (notes: string, attribution: LeadAttribution) => {
+  const attributionLines = buildAttributionLines(attribution);
+
+  return [notes, attributionLines.length > 0 ? `Attribution:\n${attributionLines.join("\n")}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+};
+
+const buildAttributionLines = (attribution: LeadAttribution) => {
+  const fields: Array<[string, string | undefined]> = [
+    ["Source", attribution.sourceLabel],
+    ["Campaign", attribution.campaign],
+    ["Medium", attribution.utm_medium],
+    ["Content", attribution.utm_content],
+    ["Term", attribution.utm_term],
+    ["UTM ID", attribution.utm_id],
+    ["Submit source", attribution.submitSource],
+    ["Form", attribution.formTitle],
+    ["Page path", attribution.pagePath],
+    ["Page URL", attribution.pageUrl],
+    ["Facebook click ID", attribution.fbclid],
+    ["Google click ID", attribution.gclid],
+    ["Microsoft click ID", attribution.msclkid]
+  ];
+
+  return fields
+    .filter(([, value]) => String(value || "").trim())
+    .map(([label, value]) => `${label}: ${String(value)}`);
+};
+
+const humanizeAttributionValue = (value: string) =>
+  String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const truncateHighLevelText = (value: string, maxLength: number) => {
+  const text = String(value || "").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+};
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
   const contentType = request.headers.get("content-type") || "";
@@ -96,6 +267,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     slabsFieldId: env.HIGHLEVEL_SLABS_FIELD_ID || "5pX0DhPVGkwPQ4sAoIjz",
     imagesFieldId: env.HIGHLEVEL_IMAGES_FIELD_ID || "XGPeq5EV1xvOP9fRPsNt",
     notesFieldId: env.HIGHLEVEL_NOTES_FIELD_ID || "wIkVaPWQuiJJjcxbci49",
+    opportunityPipelineId: env.HIGHLEVEL_OPPORTUNITY_PIPELINE_ID || env.HIGHLEVEL_PIPELINE_ID || "KXw2SRzg5Ypg3pRiUe7B",
+    opportunityStageId: env.HIGHLEVEL_OPPORTUNITY_STAGE_ID || env.HIGHLEVEL_PIPELINE_STAGE_ID || "ebad0754-aa9e-4e1d-b126-350c0ce64348",
+    defaultOpportunityValue: env.HIGHLEVEL_DEFAULT_OPPORTUNITY_VALUE || "",
     imagePublicBaseUrl: env.IMAGE_PUBLIC_BASE_URL || ""
   };
 
@@ -135,6 +309,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const suppliedLast = String(form.get("lastName") || (raw as any)?.q11_name?.last || "").trim();
   const suppliedFullName = String(form.get("fullName") || "").trim();
   const name = suppliedFirst || suppliedLast ? { firstName: suppliedFirst, lastName: suppliedLast } : splitFullName(suppliedFullName);
+  const attribution = getLeadAttribution(form, raw);
 
   const submissionId = String(form.get("submissionID") || form.get("submissionId") || `rsl-${Date.now()}`);
   const submissionSlug = slugify(submissionId, `submission-${Date.now()}`);
@@ -194,10 +369,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     state: contact.state,
     postalCode: contact.postalCode,
     country: contact.country,
-    tags: ["website quote form"],
+    source: attribution.sourceLabel,
+    tags: buildHighLevelTags(attribution),
     customFields: [
       { id: config.slabsFieldId, key: "Square Feet of Slabs", field_value: contact.squareFeetOfSlabs },
-      { id: config.notesFieldId, key: "Notes", field_value: contact.notes }
+      { id: config.notesFieldId, key: "Notes", field_value: buildHighLevelNotes(contact.notes, attribution) }
     ]
   };
 
@@ -254,6 +430,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
   }
 
+  const opportunityResult = await createHighLevelOpportunity(
+    config,
+    env.HIGHLEVEL_API_TOKEN,
+    contactId,
+    highLevelPayload,
+    attribution
+  );
+  const opportunityId = extractHighLevelOpportunityId(opportunityResult);
   const contactLocationId = String(upsertResult?.contact?.locationId || config.locationId).trim();
   const contactUrl = contactId && contactLocationId
     ? `https://app.gohighlevel.com/v2/location/${encodeURIComponent(contactLocationId)}/contacts/detail/${encodeURIComponent(contactId)}`
@@ -279,7 +463,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     html: buildNotificationHtml({ fullName, address, phone, contactUrl })
   });
 
-  return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length });
+  return json({ success: true, message: "Estimate request saved.", imageCount: uploadedUrls.length, opportunityId });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return json({ success: false, message: "Unhandled function error.", detail }, 500);
@@ -372,6 +556,88 @@ const requestHighLevelForm = async (token: string, path: string, formData: FormD
   }
 
   return (await response.json().catch(() => ({}))) as Record<string, unknown>;
+};
+
+const createHighLevelOpportunity = async (
+  config: {
+    locationId: string;
+    opportunityPipelineId: string;
+    opportunityStageId: string;
+    defaultOpportunityValue: string;
+  },
+  token: string,
+  contactId: string,
+  contact: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    address1: string;
+  },
+  attribution: LeadAttribution
+) => requestHighLevelJson(
+  token,
+  "POST",
+  "/opportunities/",
+  buildHighLevelOpportunityPayload(config, contactId, contact, attribution)
+);
+
+const buildHighLevelOpportunityPayload = (
+  config: {
+    locationId: string;
+    opportunityPipelineId: string;
+    opportunityStageId: string;
+    defaultOpportunityValue: string;
+  },
+  contactId: string,
+  contact: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    address1: string;
+  },
+  attribution: LeadAttribution
+) => {
+  const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
+  const campaignOrSource = attribution.campaign || attribution.sourceLabel;
+  const opportunityName = truncateHighLevelText(
+    [
+      fullName || contact.address1 || contact.phone || contact.email || "Website quote request",
+      "Website Quote",
+      campaignOrSource && campaignOrSource !== "rocksolidleveling.com" ? campaignOrSource : ""
+    ].filter(Boolean).join(" - "),
+    250
+  );
+  const payload: Record<string, unknown> = {
+    pipelineId: config.opportunityPipelineId,
+    locationId: config.locationId,
+    name: opportunityName,
+    status: "open",
+    contactId
+  };
+  const monetaryValue = parseHighLevelMonetaryValue(config.defaultOpportunityValue);
+
+  if (config.opportunityStageId) {
+    payload.pipelineStageId = config.opportunityStageId;
+  }
+
+  if (monetaryValue !== null) {
+    payload.monetaryValue = monetaryValue;
+  }
+
+  return payload;
+};
+
+const parseHighLevelMonetaryValue = (value: string) => {
+  const normalized = String(value || "").replace(/[$,]/g, "").trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : null;
 };
 
 const uploadFilesToHighLevelCustomField = async (
@@ -492,6 +758,14 @@ const extractHighLevelContactId = (payload: unknown) =>
   readStringPath(payload, ["contact", "id"]) ||
   readStringPath(payload, ["contact", "_id"]) ||
   readStringPath(payload, ["contactId"]) ||
+  readStringPath(payload, ["id"]) ||
+  readStringPath(payload, ["_id"]) ||
+  "";
+
+const extractHighLevelOpportunityId = (payload: unknown) =>
+  readStringPath(payload, ["opportunity", "id"]) ||
+  readStringPath(payload, ["opportunity", "_id"]) ||
+  readStringPath(payload, ["opportunityId"]) ||
   readStringPath(payload, ["id"]) ||
   readStringPath(payload, ["_id"]) ||
   "";
