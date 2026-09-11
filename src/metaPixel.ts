@@ -14,6 +14,7 @@ declare global {
 }
 
 const metaPixelId = import.meta.env.VITE_META_PIXEL_ID?.trim();
+const metaEventCurrency = "USD";
 
 let hasInitializedMetaPixel = false;
 let hasTrackedViewContent = false;
@@ -91,5 +92,5 @@ export const trackMetaPixelLead = (eventId: string) => {
     return;
   }
 
-  window.fbq?.("track", "Lead", {}, { eventID: eventId });
+  window.fbq?.("track", "Lead", { currency: metaEventCurrency }, { eventID: eventId });
 };

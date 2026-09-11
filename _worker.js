@@ -587,6 +587,12 @@ function sanitizeMetaEventSourceUrl(value, fallbackUrl) {
   return fallback.toString();
 }
 
+function getMetaLeadCustomData() {
+  return {
+    currency: "USD"
+  };
+}
+
 function buildMetaBrowserUserData({ request, fbp, fbc }) {
   return removeEmpty({
     client_ip_address: getClientIp(request),
@@ -981,6 +987,7 @@ async function handleQuoteSubmission(request, env, ctx) {
         request.url
       ),
       action_source: "website",
+      custom_data: getMetaLeadCustomData(),
       user_data: await buildMetaLeadUserData({
         request,
         form,

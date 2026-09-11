@@ -113,7 +113,7 @@ Implemented events:
 
 - `PageView`: fired browser-side by the Meta Pixel after `fbq("init", pixelId)`.
 - `ViewContent`: fired once per page load in the browser and sent to `POST /meta-capi/view-content` for server-side CAPI. Both use the same event ID for deduplication.
-- `Lead`: fired browser-side only after the estimate form returns success. The matching server-side CAPI `Lead` is queued only after the existing quote flow succeeds: R2 image upload, HighLevel contact upsert, HighLevel image-field update, and quote notification email. Meta failures are logged but do not fail an otherwise successful estimate request.
+- `Lead`: fired browser-side only after the estimate form returns success and sent with `currency: "USD"`. The matching server-side CAPI `Lead` is queued with `custom_data.currency: "USD"` only after the existing quote flow succeeds: R2 image upload, HighLevel contact upsert, HighLevel image-field update, and quote notification email. Meta failures are logged but do not fail an otherwise successful estimate request.
 
 The browser helper in `src/metaCapi.ts` creates/persists `_fbp`, captures `_fbc` from `fbclid` when available, and adds Meta identifiers plus a lead event ID to the existing multipart quote request. The browser Pixel helper in `src/metaPixel.ts` uses the same `ViewContent` and `Lead` IDs that CAPI sends as `event_id`; the browser Pixel sends those as `eventID`. The Worker hashes customer fields that Meta requires hashed before sending them. It does not hash `_fbp`, `_fbc`, client IP, or user agent.
 
