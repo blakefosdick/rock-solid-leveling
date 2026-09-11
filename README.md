@@ -78,7 +78,10 @@ It replicates the n8n flow by:
 2. Uploading any `images` files to an R2 bucket with dated object keys.
 3. Upserting the contact to HighLevel (`/contacts/upsert`) with your tags + non-file custom fields.
 4. Uploading all image files to the HighLevel file custom-field endpoint and then updating the contact's image field with HighLevel's structured file value.
-5. Serving any fallback R2 image links through `/quote-images/<object-key>` so links do not depend on public bucket access.
+5. Creating an open HighLevel opportunity in the quote pipeline for the contact.
+6. Serving any fallback R2 image links through `/quote-images/<object-key>` so links do not depend on public bucket access.
+
+The Worker also forwards basic attribution to HighLevel. The contact `source` field is set from UTM source/medium when present, otherwise from the form source. Source/campaign tags are added, and the existing Notes custom field includes UTMs, click IDs, page path, page URL, and form source.
 
 Required Cloudflare bindings/secrets for the function:
 
@@ -89,6 +92,9 @@ Required Cloudflare bindings/secrets for the function:
 - `HIGHLEVEL_SLABS_FIELD_ID`
 - `HIGHLEVEL_IMAGES_FIELD_ID`
 - `HIGHLEVEL_NOTES_FIELD_ID`
+- `HIGHLEVEL_OPPORTUNITY_PIPELINE_ID`
+- `HIGHLEVEL_OPPORTUNITY_STAGE_ID`
+- `HIGHLEVEL_DEFAULT_OPPORTUNITY_VALUE` (optional)
 - `IMAGE_PUBLIC_BASE_URL` (optional; leave unset to use same-origin `/quote-images/...` Worker URLs)
 - `QUOTE_NOTIFICATION_EMAILS` (comma-separated notification recipients; defaults to `blake@rocksolidleveling.com`)
 
